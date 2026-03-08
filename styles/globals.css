@@ -1,0 +1,15 @@
+:root {
+  --bg: #f4f6fb;
+  --text: #0f1724;
+  --muted: #64748b;
+  --accent: #3b82f6;
+}
+html,body,#__next { height: 100%; }
+body { margin: 0; font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; background: var(--bg); color: var(--text) }
+
+h1 { font-size: 28px }
+
+button { background: var(--accent); color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer }
+button:active { transform: translateY(1px) }
+
+input[type='range'] { vertical-align: middle }

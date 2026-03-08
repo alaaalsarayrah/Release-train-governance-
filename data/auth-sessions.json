@@ -1,0 +1,110 @@
+{
+  "a7560892-9baa-4085-a57a-5c11f86e20b0": {
+    "username": "admin",
+    "name": "Administrator",
+    "role": "admin",
+    "createdAt": 1773004707975
+  },
+  "00e49c90-2e1d-4149-92eb-76c874d692d3": {
+    "username": "admin",
+    "name": "Administrator",
+    "role": "admin",
+    "createdAt": 1773005435076
+  },
+  "0225001c-4453-464d-b346-fad3223bcbc0": {
+    "username": "operator",
+    "name": "Operator",
+    "role": "user",
+    "createdAt": 1773005435155
+  },
+  "6ab8d46e-119d-404a-ba57-521cf388a5df": {
+    "username": "admin",
+    "name": "Administrator",
+    "role": "admin",
+    "createdAt": 1773005453922
+  },
+  "bb979ff2-9125-42f3-ac47-6be839d22271": {
+    "username": "operator",
+    "name": "Operator",
+    "role": "user",
+    "createdAt": 1773005453963
+  },
+  "0e311ca4-2619-4e67-9b7e-641c5e5fbadb": {
+    "username": "admin",
+    "name": "Administrator",
+    "role": "admin",
+    "createdAt": 1773005467825
+  },
+  "ae805498-34da-49fe-aa78-c5334b9074fc": {
+    "username": "operator",
+    "name": "Operator",
+    "role": "user",
+    "createdAt": 1773005491638
+  },
+  "6eda9db5-c7f4-4b18-8a59-33402fb662fa": {
+    "username": "admin",
+    "name": "Administrator",
+    "role": "admin",
+    "createdAt": 1773005491984
+  },
+  "76177079-63ab-47d8-9de7-869675880842": {
+    "username": "operator",
+    "name": "Operator",
+    "role": "user",
+    "createdAt": 1773005662169
+  },
+  "a058f3e9-926e-48b6-bf78-82350596ffb1": {
+    "username": "operator",
+    "name": "Operator",
+    "role": "user",
+    "createdAt": 1773006378611
+  },
+  "283be858-fede-4ae6-ab9d-802865a2ee84": {
+    "username": "admin",
+    "name": "Administrator",
+    "role": "admin",
+    "createdAt": 1773006378739
+  },
+  "c8f70021-1512-4089-91be-0a87b0bd1a79": {
+    "username": "operator",
+    "name": "Operator",
+    "role": "user",
+    "createdAt": 1773006444697
+  },
+  "e31ffab7-6dc3-4ef9-9d19-959234f2a005": {
+    "username": "admin",
+    "name": "Administrator",
+    "role": "admin",
+    "createdAt": 1773006444786
+  },
+  "0d122331-d0d0-4ed8-a931-b3685eb9cb56": {
+    "username": "operator",
+    "name": "Operator",
+    "role": "user",
+    "createdAt": 1773006451593
+  },
+  "5b169822-8200-4d45-bb37-51066eaea63e": {
+    "username": "admin",
+    "name": "Administrator",
+    "role": "admin",
+    "createdAt": 1773006451615
+  },
+  "2e9b5d49-51c7-4f6b-9c31-eb214f719300": {
+    "username": "operator",
+    "name": "Operator",
+    "role": "user",
+    "createdAt": 1773006489046
+  },
+  "92d1a182-1f33-422e-8d2b-370e897b5c18": {
+    "username": "operator",
+    "name": "Operator",
+    "role": "user",
+    "createdAt": 1773006497660
+  },
+  "e412fd87-7b2a-426d-8080-fea52f78f7ae": {
+    "username": "operator",
+    "name": "Operator",
+    "role": "user",
+    "createdAt": 1773007547336
+  }
+}

@@ -1,0 +1,62 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Build outputs
+.next
+out
+dist
+build
+*.ipa
+*.apk
+*.aab
+
+# EAS (mobile app specific - use mobile/eas.json)
+eas.json
+
+# Production
+.vercel
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Testing
+coverage
+.nyc_output
+
+# Sensitive configuration
+.ado-config.json
+play-service-account.json
+
+# Uploads (tracked separately via volume mount)
+public/uploads/*.pdf
+public/uploads/*.docx
+public/uploads/*.doc
+
+# Temporary files
+*.log
+*.tmp
+test.pdf

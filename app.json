@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "57acf466-5ea5-45c7-80f3-d1a8536cff4b"
+      }
+    },
+    "ios": {
+      "bundleIdentifier": "com.alaa59.thesisagenticscrum",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    }
+  }
+}
