@@ -1,0 +1,156 @@
+{
+  "environments": [
+    {
+      "id": "env-uat1",
+      "name": "UAT1",
+      "track": "UAT",
+      "color": "#1f77b4",
+      "durationWeeks": 3,
+      "order": 1
+    },
+    {
+      "id": "env-uat3",
+      "name": "UAT3",
+      "track": "UAT",
+      "color": "#4caf50",
+      "durationWeeks": 2,
+      "order": 2
+    },
+    {
+      "id": "env-replica",
+      "name": "Replica",
+      "track": "Replica",
+      "color": "#f39c12",
+      "durationWeeks": 1,
+      "order": 3
+    },
+    {
+      "id": "env-production",
+      "name": "Production",
+      "track": "Production",
+      "color": "#9c274f",
+      "durationWeeks": 0,
+      "order": 4
+    },
+    {
+      "name": "UAT2",
+      "track": "SIT\\UAT",
+      "color": "#1eb372",
+      "durationWeeks": 1,
+      "order": 1,
+      "id": "env-1773163729569-2ecmwt"
+    }
+  ],
+  "releaseTrains": [
+    {
+      "id": "rt-2633",
+      "name": "Release Train 26.3.3",
+      "targetRelease": "26.3.3",
+      "startDate": "2026-03-03",
+      "endDate": "2026-03-23",
+      "startWeek": 1,
+      "durationWeeks": 3,
+      "targetEnvironmentId": "env-uat1",
+      "status": "In Progress",
+      "releaseSizeIds": [
+        "size-small",
+        "size-medium"
+      ]
+    },
+    {
+      "id": "rt-2632",
+      "name": "Release Train 26.3.2",
+      "targetRelease": "26.3.2",
+      "startDate": "2026-03-10",
+      "endDate": "2026-03-23",
+      "startWeek": 2,
+      "durationWeeks": 2,
+      "targetEnvironmentId": "env-uat3",
+      "status": "Planned",
+      "releaseSizeIds": [
+        "size-large"
+      ]
+    },
+    {
+      "id": "rt-2631",
+      "name": "Release Train 26.3.1",
+      "targetRelease": "26.3.1",
+      "startDate": "2026-03-24",
+      "endDate": "2026-03-30",
+      "startWeek": 3,
+      "durationWeeks": 1,
+      "targetEnvironmentId": "env-replica",
+      "status": "Ready",
+      "releaseSizeIds": [
+        "size-small"
+      ]
+    }
+  ],
+  "productionFreezes": [
+    {
+      "id": "pf-quarter-close",
+      "title": "Quarter Close Freeze",
+      "startDate": "2026-03-25",
+      "endDate": "2026-03-31",
+      "scope": "All production changes",
+      "active": true
+    }
+  ],
+  "gates": [
+    {
+      "id": "gate-readiness",
+      "name": "Release Readiness Check",
+      "criteria": "Code complete and testing done"
+    },
+    {
+      "id": "gate-cab",
+      "name": "CAB Approval",
+      "criteria": "Change board review and authorization"
+    }
+  ],
+  "releaseSizes": [
+    {
+      "id": "size-small",
+      "name": "Small",
+      "scopeItems": [
+        "Production incident",
+        "Standard changes"
+      ]
+    },
+    {
+      "id": "size-medium",
+      "name": "Medium",
+      "scopeItems": [
+        "UI changes",
+        "Updating existing feature",
+        "Standard changes"
+      ]
+    },
+    {
+      "id": "size-large",
+      "name": "Large",
+      "scopeItems": [
+        "UI changes",
+        "Updating existing feature",
+        "New feature"
+      ]
+    },
+    {
+      "id": "size-very-large",
+      "name": "Very Large",
+      "scopeItems": [
+        "New platform",
+        "New feature",
+        "UI changes"
+      ]
+    }
+  ],
+  "releaseScopeCatalog": [
+    "Production incident",
+    "UI changes",
+    "Standard changes",
+    "Updating existing feature",
+    "New feature",
+    "New platform"
+  ]
+}
