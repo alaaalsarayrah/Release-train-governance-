@@ -3,7 +3,16 @@ import path from 'path'
 import { requireAdmin } from '../_lib/auth'
 
 const personaPath = path.join(process.cwd(), 'data', 'agentic', 'personas.json')
-const requiredCoreKeys = ['orchestrator', 'demand', 'requirement']
+const requiredCoreKeys = [
+  'orchestrator',
+  'demand',
+  'requirement',
+  'product_owner_assistant',
+  'estimation_advisor',
+  'dependency_analyst',
+  'architect_advisor',
+  'risk_analyst'
+]
 
 const fallbackPersonas = [
   {
@@ -32,6 +41,51 @@ const fallbackPersonas = [
     active: true,
     description: 'Creates and updates BRD content based on approved demand and orchestrator feedback.',
     systemInstruction: 'You are Agentic AI_Requirement (Senior Business Analyst). Draft clear BRD content, acceptance criteria, and traceability aligned to approved demand outcomes and review comments.'
+  },
+  {
+    key: 'product_owner_assistant',
+    name: 'Product Owner Assistant',
+    personaTitle: 'Backlog Prioritization Specialist',
+    model: 'qwen3:4b',
+    active: true,
+    description: 'Analyzes backlog readiness, recommends priority order, and proposes sprint objective themes.',
+    systemInstruction: 'You are Product Owner Assistant for SAFe sprint planning. Analyze backlog items for business value, readiness, acceptance criteria quality, and priority sequencing. Provide explainable recommendations and follow-up questions.'
+  },
+  {
+    key: 'estimation_advisor',
+    name: 'Estimation Advisor',
+    personaTitle: 'Story Point Estimation Specialist',
+    model: 'qwen3:4b',
+    active: true,
+    description: 'Recommends story-point estimates with assumptions, confidence, and capacity fit guidance.',
+    systemInstruction: 'You are Estimation Advisor for sprint planning. Provide story point recommendations, assumptions, confidence levels, low-confidence flags, and capacity alignment commentary.'
+  },
+  {
+    key: 'dependency_analyst',
+    name: 'Dependency Analyst',
+    personaTitle: 'Dependency and Sequencing Specialist',
+    model: 'qwen3:4b',
+    active: true,
+    description: 'Detects dependency relationships, severity, sequencing constraints, and mitigation options.',
+    systemInstruction: 'You are Dependency Analyst for SAFe planning. Detect dependency links among backlog items, classify dependency type and severity, identify blockers, and propose mitigations.'
+  },
+  {
+    key: 'architect_advisor',
+    name: 'Architect Advisor',
+    personaTitle: 'Architecture and Technical Enabler Specialist',
+    model: 'qwen3:4b',
+    active: true,
+    description: 'Assesses architecture impact, technical enablers, design constraints, and solution intent.',
+    systemInstruction: 'You are Architect Advisor for sprint planning. Identify architecture impacts, technical enablers, runway gaps, constraints, and integration risks with concise rationale.'
+  },
+  {
+    key: 'risk_analyst',
+    name: 'Risk Analyst',
+    personaTitle: 'Sprint Risk Register Specialist',
+    model: 'qwen3:4b',
+    active: true,
+    description: 'Produces sprint risk register entries based on backlog, estimation, dependencies, and architecture concerns.',
+    systemInstruction: 'You are Risk Analyst for sprint planning governance. Produce risk register entries with probability, impact, severity, mitigation, owner, and status recommendations.'
   }
 ]
 
@@ -48,7 +102,20 @@ function loadPersonas() {
   try {
     const content = fs.readFileSync(personaPath, 'utf-8')
     const parsed = JSON.parse(content)
-    return Array.isArray(parsed) ? parsed : fallbackPersonas
+    if (!Array.isArray(parsed)) return fallbackPersonas
+
+    const existingByKey = new Map(parsed.map((p) => [String(p.key || ''), p]))
+    const merged = [...parsed]
+    for (const persona of fallbackPersonas) {
+      if (!existingByKey.has(persona.key)) {
+        merged.push(persona)
+      }
+    }
+
+    if (merged.length !== parsed.length) {
+      savePersonas(merged)
+    }
+    return merged
   } catch {
     return fallbackPersonas
   }
@@ -63,7 +130,7 @@ function toSlug(value) {
   return String(value || '')
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/[^a-z0-9_-]+/g, '-')
     .replace(/^-+|-+$/g, '')
 }
 

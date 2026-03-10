@@ -4,6 +4,7 @@ export default function AdoConfig() {
   const [org, setOrg] = useState('')
   const [project, setProject] = useState('')
   const [pat, setPat] = useState('')
+  const [defaultAssignedTo, setDefaultAssignedTo] = useState('')
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -15,6 +16,7 @@ export default function AdoConfig() {
       .then(data => {
         setOrg(data.organization || '')
         setProject(data.project || '')
+        setDefaultAssignedTo(data.defaultAssignedTo || '')
         setLoading(false)
       })
       .catch(e => {
@@ -32,7 +34,12 @@ export default function AdoConfig() {
     const res = await fetch('/api/ado-config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ organization: org, project, pat })
+      body: JSON.stringify({
+        organization: org,
+        project,
+        pat,
+        defaultAssignedTo
+      })
     })
     if (res.ok) {
       setSaved(true)
@@ -78,6 +85,19 @@ export default function AdoConfig() {
         />
         <small style={{ display: 'block', marginTop: 4, color: '#666' }}>
           Get one from https://dev.azure.com/{org || 'yourorg'}/_usersSettings/tokens
+        </small>
+      </label>
+
+      <label>
+        Default Assigned To (optional):
+        <input
+          type="text"
+          value={defaultAssignedTo}
+          onChange={(e) => setDefaultAssignedTo(e.target.value)}
+          placeholder="user@company.com"
+        />
+        <small style={{ display: 'block', marginTop: 4, color: '#666' }}>
+          Used for new ADO work items when team-based assignee resolution is unavailable.
         </small>
       </label>
 

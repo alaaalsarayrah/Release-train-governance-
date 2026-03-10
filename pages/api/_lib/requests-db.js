@@ -1,15 +1,79 @@
 import fs from 'fs'
 import path from 'path'
 import sqlite3 from 'sqlite3'
+import { createClient } from '@libsql/client'
 
-const dbPath = path.join(process.cwd(), 'data', 'requests.db')
+const bundledDbPath = path.join(process.cwd(), 'data', 'requests.db')
+const remoteDbUrl = String(
+  process.env.REQUESTS_DB_URL || process.env.TURSO_DATABASE_URL || process.env.LIBSQL_URL || ''
+).trim()
+const remoteDbAuthToken = String(
+  process.env.REQUESTS_DB_AUTH_TOKEN || process.env.TURSO_AUTH_TOKEN || process.env.LIBSQL_AUTH_TOKEN || ''
+).trim()
+
+let sharedLibsqlClient = null
+let libsqlSchemaPromise = null
+
+function useRemoteDb() {
+  return Boolean(remoteDbUrl)
+}
+
+function getLibsqlClient() {
+  if (!sharedLibsqlClient) {
+    sharedLibsqlClient = createClient({
+      url: remoteDbUrl,
+      authToken: remoteDbAuthToken || undefined
+    })
+  }
+  return sharedLibsqlClient
+}
+
+function resolveDbPath() {
+  const configured = String(process.env.REQUESTS_DB_PATH || '').trim()
+  if (configured) {
+    return path.isAbsolute(configured)
+      ? configured
+      : path.join(process.cwd(), configured)
+  }
+
+  // Vercel deployments are read-only except for /tmp.
+  if (process.env.VERCEL) {
+    return path.join('/tmp', 'requests.db')
+  }
+
+  return bundledDbPath
+}
+
+const dbPath = resolveDbPath()
+
+function ensureDbFile(targetPath) {
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true })
+
+  if (targetPath !== bundledDbPath && !fs.existsSync(targetPath) && fs.existsSync(bundledDbPath)) {
+    fs.copyFileSync(bundledDbPath, targetPath)
+  }
+}
 
 export function openDb() {
-  fs.mkdirSync(path.dirname(dbPath), { recursive: true })
+  if (useRemoteDb()) {
+    return {
+      kind: 'libsql',
+      client: getLibsqlClient()
+    }
+  }
+
+  ensureDbFile(dbPath)
   return new sqlite3.Database(dbPath)
 }
 
 export function dbRun(db, sql, params = []) {
+  if (db?.kind === 'libsql') {
+    return db.client.execute({ sql, args: params }).then((result) => ({
+      lastID: Number(result?.lastInsertRowid || 0),
+      changes: Number(result?.rowsAffected || 0)
+    }))
+  }
+
   return new Promise((resolve, reject) => {
     db.run(sql, params, function onRun(err) {
       if (err) {
@@ -22,6 +86,13 @@ export function dbRun(db, sql, params = []) {
 }
 
 export function dbGet(db, sql, params = []) {
+  if (db?.kind === 'libsql') {
+    return db.client.execute({ sql, args: params }).then((result) => {
+      const rows = Array.isArray(result?.rows) ? result.rows : []
+      return rows[0] || null
+    })
+  }
+
   return new Promise((resolve, reject) => {
     db.get(sql, params, (err, row) => {
       if (err) {
@@ -34,6 +105,13 @@ export function dbGet(db, sql, params = []) {
 }
 
 export function dbAll(db, sql, params = []) {
+  if (db?.kind === 'libsql') {
+    return db.client.execute({ sql, args: params }).then((result) => {
+      const rows = Array.isArray(result?.rows) ? result.rows : []
+      return rows
+    })
+  }
+
   return new Promise((resolve, reject) => {
     db.all(sql, params, (err, rows) => {
       if (err) {
@@ -46,6 +124,10 @@ export function dbAll(db, sql, params = []) {
 }
 
 export function closeDb(db) {
+  if (db?.kind === 'libsql') {
+    return Promise.resolve()
+  }
+
   return new Promise((resolve) => {
     db.close(() => resolve())
   })
@@ -163,12 +245,206 @@ export async function ensureSchema(db) {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`
   )
+
+  await dbRun(
+    db,
+    `CREATE TABLE IF NOT EXISTS thesis_evaluations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      scenario_id TEXT NOT NULL,
+      scenario_name TEXT,
+      participant_id TEXT,
+      participant_role TEXT,
+      perceived_usefulness INTEGER,
+      ease_of_use INTEGER,
+      trust INTEGER,
+      intention_to_use INTEGER,
+      task_completion_minutes REAL,
+      recommendations_generated INTEGER,
+      recommendations_accepted INTEGER,
+      clarification_requests INTEGER,
+      system_response_ms INTEGER,
+      error_count INTEGER,
+      notes TEXT,
+      interview_notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`
+  )
+
+  await dbRun(
+    db,
+    `CREATE TABLE IF NOT EXISTS planning_sessions (
+      id TEXT PRIMARY KEY,
+      title TEXT,
+      team_id TEXT,
+      team_name TEXT,
+      sprint_id TEXT,
+      sprint_name TEXT,
+      status TEXT DEFAULT 'draft',
+      planning_context TEXT,
+      selected_agents TEXT,
+      final_summary TEXT,
+      created_by TEXT,
+      finalized_by TEXT,
+      finalized_at TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`
+  )
+
+  await dbRun(
+    db,
+    `CREATE TABLE IF NOT EXISTS planning_agent_outputs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      agent_key TEXT NOT NULL,
+      summary TEXT,
+      confidence REAL,
+      output_json TEXT NOT NULL,
+      created_by TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`
+  )
+
+  await dbRun(
+    db,
+    `CREATE TABLE IF NOT EXISTS planning_human_decisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      agent_output_id INTEGER,
+      agent_key TEXT,
+      decision TEXT NOT NULL,
+      original_output_json TEXT,
+      final_output_json TEXT,
+      human_rationale TEXT,
+      actor TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`
+  )
+
+  await dbRun(
+    db,
+    `CREATE TABLE IF NOT EXISTS planning_dependency_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      source_item TEXT,
+      target_item TEXT,
+      dependency_type TEXT,
+      severity TEXT,
+      description TEXT,
+      mitigation TEXT,
+      threatens_sprint INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`
+  )
+
+  await dbRun(
+    db,
+    `CREATE TABLE IF NOT EXISTS planning_estimation_decisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      backlog_item_id TEXT,
+      backlog_item_title TEXT,
+      ai_estimate REAL,
+      final_estimate REAL,
+      confidence REAL,
+      assumptions TEXT,
+      actor TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`
+  )
+
+  await dbRun(
+    db,
+    `CREATE TABLE IF NOT EXISTS planning_architecture_notes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      agent_output_id INTEGER,
+      impacted_components TEXT,
+      assumptions TEXT,
+      constraints TEXT,
+      technical_enablers TEXT,
+      architecture_risks TEXT,
+      recommended_actions TEXT,
+      rationale TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`
+  )
+
+  await dbRun(
+    db,
+    `CREATE TABLE IF NOT EXISTS planning_risk_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      risk_id TEXT,
+      title TEXT,
+      description TEXT,
+      category TEXT,
+      probability TEXT,
+      impact TEXT,
+      severity TEXT,
+      mitigation TEXT,
+      owner TEXT,
+      status TEXT,
+      source_agent TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`
+  )
+
+  await dbRun(
+    db,
+    `CREATE TABLE IF NOT EXISTS planning_scenario_runs (
+      id TEXT PRIMARY KEY,
+      scenario_key TEXT NOT NULL,
+      scenario_name TEXT NOT NULL,
+      participant_id TEXT,
+      participant_role TEXT,
+      instructions TEXT,
+      synthetic_data TEXT,
+      started_at TEXT,
+      ended_at TEXT,
+      duration_seconds REAL,
+      recommendations_shown INTEGER DEFAULT 0,
+      accepted_count INTEGER DEFAULT 0,
+      modified_count INTEGER DEFAULT 0,
+      rejected_count INTEGER DEFAULT 0,
+      clarification_requests INTEGER DEFAULT 0,
+      perceived_usefulness INTEGER,
+      ease_of_use INTEGER,
+      trust INTEGER,
+      intention_to_use INTEGER,
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`
+  )
+
+  await dbRun(
+    db,
+    `CREATE TABLE IF NOT EXISTS planning_scenario_interactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT NOT NULL,
+      recommendation_id TEXT,
+      action TEXT,
+      actor TEXT,
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`
+  )
 }
 
 export async function withDb(work) {
   const db = openDb()
   try {
-    await ensureSchema(db)
+    if (db?.kind === 'libsql') {
+      if (!libsqlSchemaPromise) {
+        libsqlSchemaPromise = ensureSchema(db).catch((err) => {
+          libsqlSchemaPromise = null
+          throw err
+        })
+      }
+      await libsqlSchemaPromise
+    } else {
+      await ensureSchema(db)
+    }
+
     return await work(db)
   } finally {
     await closeDb(db)

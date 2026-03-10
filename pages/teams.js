@@ -12,6 +12,8 @@ export default function TeamsPage() {
   const [savingEmails, setSavingEmails] = useState(false)
   const [syncingSiteUsers, setSyncingSiteUsers] = useState(false)
   const [syncSiteUsersReport, setSyncSiteUsersReport] = useState(null)
+  const [checkingAssignability, setCheckingAssignability] = useState(false)
+  const [assignmentReadiness, setAssignmentReadiness] = useState(null)
   const [adminFixing, setAdminFixing] = useState(false)
   const [adminFixReport, setAdminFixReport] = useState(null)
 
@@ -25,6 +27,18 @@ export default function TeamsPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  function formatTeamSetupWriteError(payload) {
+    const message = String(payload?.message || 'Failed to save emails').trim()
+    const details = String(payload?.error || '').trim()
+
+    if (/\bEROFS\b|read-only file system/i.test(details)) {
+      return 'This deployment is read-only. Update data/team-setup.json in the repo and redeploy, or run this action locally.'
+    }
+
+    if (details) return `${message}: ${details}`
+    return message
   }
 
   async function initializeTeams() {
@@ -101,18 +115,94 @@ export default function TeamsPage() {
         emailUpdates.push({ teamName: parts[0], memberName: parts[1], email: parts[2] })
       }
 
+      await persistMemberEmailUpdates(emailUpdates, 'Member emails saved to site team setup')
+    } catch (err) {
+      console.error(err)
+      alert('Save member emails failed: ' + err.message)
+    } finally {
+      setSavingEmails(false)
+    }
+  }
+
+  async function persistMemberEmailUpdates(emailUpdates, successMessage = 'Member emails saved') {
+    if (!Array.isArray(emailUpdates) || !emailUpdates.length) {
+      throw new Error('No valid email updates provided')
+    }
+
       const res = await fetch('/api/team-setup', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailUpdates })
       })
       const json = await res.json()
-      if (!res.ok) throw new Error(json.message || 'Failed to save emails')
+      if (!res.ok) throw new Error(formatTeamSetupWriteError(json))
       setData({ teams: json.setup?.teams || [], sprints: json.setup?.sprints || [] })
-      alert('Member emails saved to site team setup')
+      alert(successMessage)
+  }
+
+  function getFallbackEmailUpdatesFromReadiness() {
+    const entitledUser = assignmentReadiness?.entitledUsers?.[0] || null
+    const fallbackEmail = String(entitledUser?.principalName || entitledUser?.mail || '').trim()
+    if (!fallbackEmail) {
+      return { fallbackEmail: null, updates: [] }
+    }
+
+    const unresolved = (assignmentReadiness?.memberChecks || []).filter(
+      (x) => x.status !== 'skipped_ai' && !x.assignable
+    )
+
+    const dedupe = new Map()
+    for (const row of unresolved) {
+      const teamName = String(row.team || '').trim()
+      const memberName = String(row.member || '').trim()
+      if (!teamName || !memberName) continue
+      dedupe.set(`${teamName}::${memberName}`, {
+        teamName,
+        memberName,
+        email: fallbackEmail
+      })
+    }
+
+    return {
+      fallbackEmail,
+      updates: Array.from(dedupe.values())
+    }
+  }
+
+  function fillFallbackMemberEmails() {
+    const { fallbackEmail, updates } = getFallbackEmailUpdatesFromReadiness()
+    if (!fallbackEmail || !updates.length) {
+      alert('No unresolved human members available for fallback mapping. Run readiness check first.')
+      return
+    }
+
+    const lines = updates.map((x) => `${x.teamName}, ${x.memberName}, ${x.email}`)
+    setMemberEmailInput(lines.join('\n'))
+    alert(`Prepared ${updates.length} fallback mappings using ${fallbackEmail}`)
+  }
+
+  async function applyFallbackMemberEmails() {
+    const { fallbackEmail, updates } = getFallbackEmailUpdatesFromReadiness()
+    if (!fallbackEmail || !updates.length) {
+      alert('No unresolved human members available for fallback mapping. Run readiness check first.')
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Apply fallback email ${fallbackEmail} to ${updates.length} unresolved human members?`
+    )
+    if (!confirmed) return
+
+    setSavingEmails(true)
+    try {
+      await persistMemberEmailUpdates(
+        updates,
+        `Applied fallback mapping to ${updates.length} members`
+      )
+      await checkAssignmentReadiness()
     } catch (err) {
       console.error(err)
-      alert('Save member emails failed: ' + err.message)
+      alert('Fallback mapping failed: ' + err.message)
     } finally {
       setSavingEmails(false)
     }
@@ -135,16 +225,62 @@ export default function TeamsPage() {
     }
   }
 
+  async function checkAssignmentReadiness() {
+    setCheckingAssignability(true)
+    setAssignmentReadiness(null)
+    try {
+      const res = await fetch('/api/ado-assignment-readiness')
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.message || 'Assignment readiness check failed')
+      setAssignmentReadiness(json)
+    } catch (err) {
+      console.error(err)
+      alert('Assignment readiness check failed: ' + err.message)
+    } finally {
+      setCheckingAssignability(false)
+    }
+  }
+
   useEffect(() => {
     load()
   }, [])
 
-  const totalMembers = (data.teams || []).reduce((acc, team) => acc + (team.members || []).length, 0)
-  const aiMembers = (data.teams || []).reduce(
-    (acc, team) => acc + (team.members || []).filter((m) => String(m.type || '').toLowerCase() === 'ai').length,
-    0
+  function getMemberKind(member) {
+    const type = String(member?.type || '').trim().toLowerCase()
+    const name = String(member?.name || '').trim().toLowerCase()
+
+    if (type.includes('human')) return 'human'
+
+    if (
+      type.startsWith('ai') ||
+      type.includes('agentic') ||
+      (type.includes('agent') && !type.includes('human')) ||
+      /^ai[\s_-]/.test(name) ||
+      name.startsWith('ai ')
+    ) {
+      return 'ai'
+    }
+
+    return 'unknown'
+  }
+
+  const memberStats = (data.teams || []).reduce(
+    (acc, team) => {
+      for (const member of team.members || []) {
+        const kind = getMemberKind(member)
+        acc.total += 1
+        if (kind === 'ai') acc.ai += 1
+        else if (kind === 'human') acc.human += 1
+        else acc.unknown += 1
+      }
+      return acc
+    },
+    { total: 0, human: 0, ai: 0, unknown: 0 }
   )
-  const humanMembers = totalMembers - aiMembers
+
+  const totalMembers = memberStats.total
+  const aiMembers = memberStats.ai
+  const humanMembers = memberStats.human
 
   return (
     <main className="shell">
@@ -164,6 +300,7 @@ export default function TeamsPage() {
           <Link href="/agentic-workflow">Workflow Console</Link>
           <Link href="/agentic-config">Personas & Audit</Link>
           <Link href="/scrum-master">Scrum Master</Link>
+          <Link href="/ado-work-item-types">ADO Types</Link>
         </div>
       </header>
 
@@ -185,8 +322,12 @@ export default function TeamsPage() {
           <p>{humanMembers}</p>
         </article>
         <article>
-          <h3>AI Agents</h3>
+          <h3>AI Agentic Members</h3>
           <p>{aiMembers}</p>
+        </article>
+        <article>
+          <h3>Unknown Type</h3>
+          <p>{memberStats.unknown}</p>
         </article>
       </section>
 
@@ -201,6 +342,9 @@ export default function TeamsPage() {
           </button>
           <button onClick={provisionInAdo} disabled={provisioning}>
             {provisioning ? 'Provisioning ADO...' : 'Provision in Azure DevOps'}
+          </button>
+          <button onClick={checkAssignmentReadiness} disabled={checkingAssignability}>
+            {checkingAssignability ? 'Checking Assignability...' : 'Check Assignment Readiness'}
           </button>
           <button onClick={runAdoAdminFix} disabled={adminFixing}>
             {adminFixing ? 'Running Admin Fix...' : 'Run ADO Team Admin Fix'}
@@ -242,7 +386,16 @@ export default function TeamsPage() {
           <button onClick={saveMemberEmails} disabled={savingEmails}>
             {savingEmails ? 'Saving...' : 'Save Member Emails'}
           </button>
+          <button onClick={fillFallbackMemberEmails}>
+            Fill Unresolved with Fallback
+          </button>
+          <button onClick={applyFallbackMemberEmails} disabled={savingEmails}>
+            {savingEmails ? 'Applying Fallback...' : 'Apply Fallback Mapping'}
+          </button>
         </div>
+        <p className="muted" style={{ marginTop: 8 }}>
+          Fallback mapping is temporary and maps unresolved humans to the first entitled ADO principal from readiness.
+        </p>
       </section>
 
       {loading ? <div className="notice">Loading teams...</div> : null}
@@ -278,15 +431,34 @@ export default function TeamsPage() {
       </section>
 
       <section className="panel">
-        <h2>Teams and Members (Human + AI Agents)</h2>
+        <h2>Teams and Members (Human + AI Agentic)</h2>
         {data.teams.length === 0 ? (
           <p className="muted">No teams configured.</p>
         ) : (
           <div className="teamGrid">
             {data.teams.map((team) => (
               <article key={team.id || team.name} className="teamCard">
-                <h3>{team.name}</h3>
-                <p className="muted">Region: {team.region}</p>
+                {(() => {
+                  const teamStats = (team.members || []).reduce(
+                    (acc, member) => {
+                      const kind = getMemberKind(member)
+                      acc.total += 1
+                      if (kind === 'ai') acc.ai += 1
+                      else if (kind === 'human') acc.human += 1
+                      else acc.unknown += 1
+                      return acc
+                    },
+                    { total: 0, human: 0, ai: 0, unknown: 0 }
+                  )
+
+                  return (
+                    <>
+                      <h3>{team.name}</h3>
+                      <p className="muted">Region: {team.region}</p>
+                      <p className="muted">Members: {teamStats.total} | Human: {teamStats.human} | AI Agentic: {teamStats.ai} | Unknown: {teamStats.unknown}</p>
+                    </>
+                  )
+                })()}
                 <div className="tableWrap">
                   <table>
                     <thead>
@@ -298,18 +470,21 @@ export default function TeamsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {(team.members || []).map((m, idx) => (
-                        <tr key={`${team.name}-${idx}`}>
-                          <td>{m.name}</td>
-                          <td>{m.role}</td>
-                          <td>
-                            <span className={`pill ${String(m.type || '').toLowerCase() === 'ai' ? 'ai' : 'human'}`}>
-                              {m.type}
-                            </span>
-                          </td>
-                          <td>{m.email || '-'}</td>
-                        </tr>
-                      ))}
+                      {(team.members || []).map((m, idx) => {
+                        const kind = getMemberKind(m)
+                        return (
+                          <tr key={`${team.name}-${idx}`}>
+                            <td>{m.name}</td>
+                            <td>{m.role}</td>
+                            <td>
+                              <span className={`pill ${kind}`}>
+                                {kind === 'ai' ? 'AI Agentic' : (kind === 'human' ? 'Human' : (m.type || 'Unknown'))}
+                              </span>
+                            </td>
+                            <td>{m.email || '-'}</td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -403,8 +578,43 @@ export default function TeamsPage() {
           <h2>Site Users Sync Report</h2>
           <p><strong>Invited:</strong> {(syncSiteUsersReport.invited || []).length}</p>
           <p><strong>Failed:</strong> {(syncSiteUsersReport.failed || []).length}</p>
+          <p><strong>Blocked by Org Policy:</strong> {(syncSiteUsersReport.blockedByOrgPolicy || []).length}</p>
           <p><strong>Skipped (No Email):</strong> {(syncSiteUsersReport.skippedNoEmail || []).length}</p>
+          <p><strong>Skipped (Invalid Email):</strong> {(syncSiteUsersReport.skippedInvalidEmail || []).length}</p>
+          <p><strong>Skipped (Placeholder/Test Email):</strong> {(syncSiteUsersReport.skippedPlaceholderEmail || []).length}</p>
           <p><strong>Skipped (AI Agents):</strong> {(syncSiteUsersReport.skippedAiAgents || []).length}</p>
+
+          {(syncSiteUsersReport.blockedByOrgPolicy || []).length ? (
+            <div>
+              <strong>Policy Guidance</strong>
+              <ul>
+                <li>These users are not in the Azure DevOps tenant directory allowed by organization security settings.</li>
+                <li>Use Entra ID emails from the same tenant, or ask org admin to allow external invitations.</li>
+              </ul>
+            </div>
+          ) : null}
+
+          {(syncSiteUsersReport.skippedPlaceholderEmail || []).length ? (
+            <div>
+              <strong>Placeholder Emails Skipped</strong>
+              <ul>
+                {(syncSiteUsersReport.skippedPlaceholderEmail || []).map((x, i) => (
+                  <li key={`pe-${i}`}>{x.team} / {x.member} / {x.email}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {(syncSiteUsersReport.blockedByOrgPolicy || []).length ? (
+            <div>
+              <strong>Blocked by Org Policy</strong>
+              <ul>
+                {(syncSiteUsersReport.blockedByOrgPolicy || []).map((x, i) => (
+                  <li key={`b-${i}`}>{x.team} / {x.member} / {x.email}: {x.message}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
 
           {(syncSiteUsersReport.failed || []).length ? (
             <div>
@@ -413,6 +623,56 @@ export default function TeamsPage() {
                 {(syncSiteUsersReport.failed || []).map((x, i) => (
                   <li key={`f-${i}`}>{x.team} / {x.member} / {x.email}: {x.message}</li>
                 ))}
+              </ul>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {assignmentReadiness ? (
+        <section className="panel report reportAmber">
+          <h2>Assignment Readiness Report</h2>
+          <p><strong>Organization:</strong> {assignmentReadiness.organization}</p>
+          <p><strong>Entitled ADO Users:</strong> {assignmentReadiness.summary?.entitledAdoUsers || 0}</p>
+          <p><strong>Human Members:</strong> {assignmentReadiness.summary?.humanMembers || 0}</p>
+          <p><strong>Assignable Humans:</strong> {assignmentReadiness.summary?.assignableHumans || 0}</p>
+          <p><strong>Unresolved Humans:</strong> {assignmentReadiness.summary?.unresolvedHumans || 0}</p>
+          <p><strong>Missing Email:</strong> {assignmentReadiness.summary?.missingEmail || 0}</p>
+          <p><strong>Invalid Email:</strong> {assignmentReadiness.summary?.invalidEmail || 0}</p>
+          <p><strong>Placeholder Email:</strong> {assignmentReadiness.summary?.placeholderEmail || 0}</p>
+          <p><strong>Suggested Email Updates:</strong> {assignmentReadiness.summary?.suggestedEmailUpdates || 0}</p>
+
+          {(assignmentReadiness.entitledUsers || []).length ? (
+            <div>
+              <strong>Entitled ADO Users</strong>
+              <ul>
+                {(assignmentReadiness.entitledUsers || []).map((x, i) => (
+                  <li key={`au-${i}`}>{x.displayName} / {x.principalName}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {(assignmentReadiness.suggestedEmailUpdates || []).length ? (
+            <div>
+              <strong>Suggested Member Email Updates</strong>
+              <ul>
+                {(assignmentReadiness.suggestedEmailUpdates || []).map((x, i) => (
+                  <li key={`su-${i}`}>{x.team} / {x.member}: {x.currentEmail || '-'} {' -> '} {x.suggestedEmail}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {(assignmentReadiness.memberChecks || []).filter((x) => x.status !== 'skipped_ai' && !x.assignable).length ? (
+            <div>
+              <strong>Unresolved Human Members</strong>
+              <ul>
+                {(assignmentReadiness.memberChecks || [])
+                  .filter((x) => x.status !== 'skipped_ai' && !x.assignable)
+                  .map((x, i) => (
+                    <li key={`ur-${i}`}>{x.team} / {x.member} / {x.email || '-'}: {x.reason}</li>
+                  ))}
               </ul>
             </div>
           ) : null}
@@ -644,6 +904,12 @@ export default function TeamsPage() {
           border: 1px solid #5eead4;
         }
 
+        .pill.unknown {
+          color: #6b7280;
+          background: #f3f4f6;
+          border: 1px solid #d1d5db;
+        }
+
         .report {
           font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif;
         }
@@ -658,6 +924,10 @@ export default function TeamsPage() {
 
         .reportTeal {
           background: #ecfeff;
+        }
+
+        .reportAmber {
+          background: #fffbeb;
         }
 
         .report ul {

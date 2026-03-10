@@ -7,8 +7,10 @@ export default function Home() {
   const adminEntryHref = '/login?next=/administrator'
 
   const quickLinks = [
+    { href: '/sprint-planning-workspace', title: 'Sprint Planning Workspace', desc: 'Main thesis demo: orchestrated multi-agent SAFe sprint planning assistant.' },
     { href: '/agentic-workflow', title: 'Agentic Workflow Console', desc: 'Run demand and BRD stages with Brain review loop.' },
     { href: adminEntryHref, title: 'Administrator Console', desc: 'Run cleanup actions and access core admin controls.' },
+    { href: '/project-documentation', title: 'Project Documentation', desc: 'Complete handbook of personas, workflow, architecture, and operations.' },
     { href: '/dashboard', title: 'Business Requests Dashboard', desc: 'Approve requests and run Stage 1 orchestration.' },
     { href: '/teams', title: 'Teams and Sprint Setup', desc: 'Provision squads, sprints, and ADO team structure.' },
     { href: '/scrum-master', title: 'AI Scrum Master', desc: 'Interactive assistant for sprint planning context.' },
@@ -48,6 +50,7 @@ export default function Home() {
 
           <div className="heroActions">
             <Link href="/agentic-workflow">Open Workflow Console</Link>
+            <Link href="/sprint-planning-workspace">Open Sprint Planning Workspace</Link>
             <Link href="/dashboard">Open Operations Dashboard</Link>
             <Link href={adminEntryHref}>Open Administrator</Link>
           </div>

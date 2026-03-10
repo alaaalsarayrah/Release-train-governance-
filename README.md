@@ -20,6 +20,13 @@ Open http://localhost:3000 after `npm run dev`.
 📚 **Full deployment guide**: See [DEPLOYMENT.md](./DEPLOYMENT.md)  
 📱 **iOS build guide**: See [mobile/IOS_BUILD_GUIDE.md](./mobile/IOS_BUILD_GUIDE.md)
 
+**Data storage note:**
+- On Vercel, writable local storage is runtime-only (`/tmp`).
+- The app supports `REQUESTS_DB_PATH` override for SQLite path control.
+- For durable production persistence, configure remote libSQL/Turso:
+  - `REQUESTS_DB_URL=libsql://<database>.turso.io`
+  - `REQUESTS_DB_AUTH_TOKEN=<token>`
+
 ## Features
 
 - ✅ Thesis PDF upload and parsing
@@ -40,6 +47,21 @@ To redeploy:
 ```powershell
 cd d:\Project
 npx vercel --prod
+```
+
+## Planning Smoke Test
+
+Run the full planning + scenario-runner smoke test locally:
+
+```powershell
+cd d:\Project
+npm run smoke:planning
+```
+
+Run against production:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/planning-smoke.ps1 -BaseUrl "https://thesis-agentic-scrum.vercel.app"
 ```
 
 ### Docker

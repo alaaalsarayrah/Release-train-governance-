@@ -200,7 +200,9 @@ export default function AgenticWorkflowPage() {
         </div>
         <div className="links">
           <Link href="/">Home</Link>
+          <Link href="/sprint-planning-workspace">Sprint Planning Workspace</Link>
           <Link href="/agentic-config">Persona Config</Link>
+          <Link href="/evaluation">Evaluation</Link>
           <Link href="/dashboard">Dashboard</Link>
         </div>
       </header>
@@ -361,6 +363,9 @@ export default function AgenticWorkflowPage() {
 
                 <div className="submit-card">
                   <h4>Business Analyst Submit/Update BRD</h4>
+                  <p className="muted-note">
+                    If a BRD draft is already generated, you can submit for Brain review even with empty fields.
+                  </p>
                   <label>
                     BRD Summary
                     <input value={brdSummary} onChange={(e) => setBrdSummary(e.target.value)} placeholder="Short BRD summary" />
@@ -508,6 +513,13 @@ export default function AgenticWorkflowPage() {
           box-shadow: 0 16px 38px rgba(17, 24, 39, 0.07);
           margin-bottom: 14px;
           padding: 14px;
+        }
+
+        .muted-note {
+          margin: 0 0 8px;
+          color: #4d647e;
+          font-size: 12px;
+          line-height: 1.35;
         }
 
         .head {

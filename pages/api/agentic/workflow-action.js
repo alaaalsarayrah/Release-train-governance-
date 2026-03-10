@@ -9,6 +9,12 @@ import {
   withDb
 } from '../_lib/requests-db'
 import { resolveActorFromRequest } from '../_lib/session-identity'
+import {
+  appendAssignedToPatch,
+  isAssigneeError,
+  removeAssignedToPatch,
+  resolveAssigneeForAdo
+} from '../../../lib/ado/assignment'
 
 const personaPath = path.join(process.cwd(), 'data', 'agentic', 'personas.json')
 const adoConfigPath = path.join(process.cwd(), 'public', '.ado-config.json')
@@ -379,34 +385,73 @@ async function syncStageToAdo({ brId, stageName, title, description, tags }) {
   }
 
   const patch = [
-    { op: 'add', path: '/fields/System.Title', value: `[${stageName}] ${brId} - ${title}` },
+    { op: 'add', path: '/fields/System.Title', value: `[Stage Checkpoint][${stageName}] ${brId} - ${title}` },
     { op: 'add', path: '/fields/System.Description', value: description },
-    { op: 'add', path: '/fields/System.Tags', value: tags || `Agentic;${stageName}` }
+    { op: 'add', path: '/fields/System.Tags', value: tags || `Agentic;StageCheckpoint;${stageName}` }
   ]
+  const assignedTo = await resolveAssigneeForAdo({ config })
+  const patchWithAssignee = appendAssignedToPatch(patch, assignedTo)
+  const patchWithoutAssignee = removeAssignedToPatch(patchWithAssignee)
+
+  let checkpointType = 'Task'
+  try {
+    const types = await withTimeout(
+      () => witApi.getWorkItemTypes(config.project),
+      adoTimeoutMs,
+      'ADO work item type lookup'
+    )
+    const available = new Set((types || []).map((x) => String(x?.name || '').trim()))
+    checkpointType = available.has('Issue') ? 'Issue' : (available.has('Task') ? 'Task' : 'User Story')
+  } catch {
+    checkpointType = 'Task'
+  }
 
   try {
-    const issue = await withTimeout(
-      () => witApi.createWorkItem(null, patch, config.project, 'Issue'),
+    const item = await withTimeout(
+      () => witApi.createWorkItem(null, patchWithAssignee, config.project, checkpointType),
       adoTimeoutMs,
-      'ADO Issue creation'
+      `ADO ${checkpointType} creation`
     )
     return {
       skipped: false,
-      workItemType: 'Issue',
-      workItemId: issue?.id || null,
-      url: issue?.id
-        ? `https://dev.azure.com/${config.organization}/${config.project}/_workitems/edit/${issue.id}`
+      category: 'stage-checkpoint',
+      workItemType: checkpointType,
+      workItemId: item?.id || null,
+      url: item?.id
+        ? `https://dev.azure.com/${config.organization}/${config.project}/_workitems/edit/${item.id}`
         : null
     }
-  } catch (issueErr) {
+  } catch (primaryErr) {
+    if (assignedTo && isAssigneeError(primaryErr)) {
+      try {
+        const itemWithoutAssignee = await withTimeout(
+          () => witApi.createWorkItem(null, patchWithoutAssignee, config.project, checkpointType),
+          adoTimeoutMs,
+          `ADO ${checkpointType} creation (without assignee)`
+        )
+        return {
+          skipped: false,
+          category: 'stage-checkpoint',
+          workItemType: checkpointType,
+          workItemId: itemWithoutAssignee?.id || null,
+          url: itemWithoutAssignee?.id
+            ? `https://dev.azure.com/${config.organization}/${config.project}/_workitems/edit/${itemWithoutAssignee.id}`
+            : null
+        }
+      } catch {
+        // Continue to Task fallback.
+      }
+    }
+
     try {
       const task = await withTimeout(
-        () => witApi.createWorkItem(null, patch, config.project, 'Task'),
+        () => witApi.createWorkItem(null, patchWithAssignee, config.project, 'Task'),
         adoTimeoutMs,
         'ADO Task creation'
       )
       return {
         skipped: false,
+        category: 'stage-checkpoint',
         workItemType: 'Task',
         workItemId: task?.id || null,
         url: task?.id
@@ -414,9 +459,30 @@ async function syncStageToAdo({ brId, stageName, title, description, tags }) {
           : null
       }
     } catch (taskErr) {
+      if (assignedTo && isAssigneeError(taskErr)) {
+        try {
+          const taskWithoutAssignee = await withTimeout(
+            () => witApi.createWorkItem(null, patchWithoutAssignee, config.project, 'Task'),
+            adoTimeoutMs,
+            'ADO Task creation (without assignee)'
+          )
+          return {
+            skipped: false,
+            category: 'stage-checkpoint',
+            workItemType: 'Task',
+            workItemId: taskWithoutAssignee?.id || null,
+            url: taskWithoutAssignee?.id
+              ? `https://dev.azure.com/${config.organization}/${config.project}/_workitems/edit/${taskWithoutAssignee.id}`
+              : null
+          }
+        } catch {
+          // Fall through to unified failure message.
+        }
+      }
+
       return {
         skipped: true,
-        reason: `ADO create failed: ${formatError(issueErr)} | ${formatError(taskErr)}`
+        reason: `ADO create failed: ${formatError(primaryErr)} | ${formatError(taskErr)}`
       }
     }
   }
@@ -779,16 +845,32 @@ export default async function handler(req, res) {
         return res.status(400).json({ message: 'Agentic AI_Requirement persona is missing or disabled' })
       }
 
-      if (!brdSummary && !brdUrl && !brdDetails) {
+      const existingDetails = tryParseJson(br.requirement_details || '')
+      const hasExistingArtifact = Boolean(existingDetails || br.requirement_doc)
+
+      if (!brdSummary && !brdUrl && !brdDetails && !hasExistingArtifact) {
         return res.status(400).json({ message: 'Provide BRD summary, details, or document URL' })
       }
+
+      const summaryFallback =
+        existingDetails?.summary ||
+        existingDetails?.executiveSummary ||
+        existingDetails?.title ||
+        existingDetails?.draft?.executiveSummary ||
+        existingDetails?.draft?.title ||
+        null
+
+      const summaryToPersist = brdSummary || summaryFallback
+      const detailsToPersist = brdDetails || (existingDetails ? JSON.stringify(existingDetails) : null)
+      const docUrlToPersist = brdUrl || br.requirement_doc || null
 
       const nextVersion = Number(br.requirement_brd_version || 0) + 1
       const mergedDetails = {
         source: 'BA Submission',
         version: nextVersion,
-        summary: brdSummary || null,
-        details: brdDetails || null,
+        summary: summaryToPersist,
+        details: detailsToPersist,
+        usedExistingDraft: !brdSummary && !brdDetails && Boolean(hasExistingArtifact),
         submittedAt: nowIso()
       }
 
@@ -796,13 +878,13 @@ export default async function handler(req, res) {
         brId: id,
         stageName: 'BRD Submission',
         title: `BRD v${nextVersion} submitted by BA`,
-        description: `<p><strong>BR:</strong> ${id}</p><p><strong>Summary:</strong> ${brdSummary || 'N/A'}</p><p><strong>Document URL:</strong> ${brdUrl || 'N/A'}</p>`,
+        description: `<p><strong>BR:</strong> ${id}</p><p><strong>Summary:</strong> ${summaryToPersist || 'N/A'}</p><p><strong>Document URL:</strong> ${docUrlToPersist || 'N/A'}</p>`,
         tags: 'Agentic;BRDSubmission;BusinessAnalyst'
       })
 
       await updateBr(id, {
         requirement_status: 'Submitted by BA',
-        requirement_doc: brdUrl || br.requirement_doc || null,
+        requirement_doc: docUrlToPersist,
         requirement_details: JSON.stringify(mergedDetails),
         requirement_brd_version: nextVersion,
         requirement_review_status: 'Pending Brain Review',
@@ -817,7 +899,14 @@ export default async function handler(req, res) {
         actor: persona.name,
         eventType: 'info',
         message: 'BRD submitted for Brain review',
-        details: { version: nextVersion, brdUrl: brdUrl || null, adoWorkItemId: ado.workItemId || null, triggeredBy: operator }
+        details: {
+          version: nextVersion,
+          brdUrl: docUrlToPersist,
+          summary: summaryToPersist,
+          adoWorkItemId: ado.workItemId || null,
+          triggeredBy: operator,
+          usedExistingDraft: !brdSummary && !brdDetails && Boolean(hasExistingArtifact)
+        }
       })
 
       return res.status(200).json({ success: true, version: nextVersion, ado })
@@ -848,6 +937,8 @@ export default async function handler(req, res) {
         requirement_review_reason: reason || null,
         requirement_reviewed_at: nowIso(),
         requirement_created: approved ? 1 : 0,
+        epic_status: approved ? (br.epic_status || 'Ready for Creation') : (br.epic_status || null),
+        user_story_status: approved ? (br.user_story_status || 'Ready for Creation') : (br.user_story_status || null),
         workflow_current_stage: approved ? 'Ready for Epic Scoping' : 'BRD Rework'
       })
 

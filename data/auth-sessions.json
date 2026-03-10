@@ -106,5 +106,11 @@
     "name": "Operator",
     "role": "user",
     "createdAt": 1773007547336
+  },
+  "a1645cc5-851d-4483-8385-55b4f36f918f": {
+    "username": "admin",
+    "name": "Administrator",
+    "role": "admin",
+    "createdAt": 1773093992966
   }
 }

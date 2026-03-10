@@ -8,7 +8,7 @@ function loadConfig() {
     const data = fs.readFileSync(configPath, 'utf-8')
     return JSON.parse(data)
   }
-  return { organization: '', project: '', pat: '' }
+  return { organization: '', project: '', pat: '', defaultAssignedTo: '' }
 }
 
 function saveConfig(config) {
@@ -24,16 +24,22 @@ export default function handler(req, res) {
       return res.status(200).json({
         organization: config.organization,
         project: config.project,
+        defaultAssignedTo: config.defaultAssignedTo || '',
         isPATSet: !!config.pat
       })
     }
 
     if (req.method === 'POST') {
-      const { organization, project, pat } = req.body
+      const { organization, project, pat, defaultAssignedTo } = req.body
       if (!organization || !project || !pat) {
         return res.status(400).json({ message: 'Missing organization, project, or PAT' })
       }
-      saveConfig({ organization, project, pat })
+      saveConfig({
+        organization,
+        project,
+        pat,
+        defaultAssignedTo: String(defaultAssignedTo || '').trim()
+      })
       return res.status(200).json({ message: 'ADO config saved' })
     }
 

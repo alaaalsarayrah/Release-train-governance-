@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 
@@ -39,6 +39,50 @@ export default function AdministratorPage() {
   const [sessionName, setSessionName] = useState('')
   const [sessionRole, setSessionRole] = useState('Product Owner')
   const [savingSessionIdentity, setSavingSessionIdentity] = useState(false)
+
+  const activePersonaCount = useMemo(
+    () => personas.filter((persona) => persona.active !== false).length,
+    [personas]
+  )
+
+  const documentationCards = [
+    {
+      title: 'Project Handbook',
+      desc: 'Complete project documentation for workflow, architecture, personas, and governance.',
+      href: '/project-documentation',
+      badge: 'All Users'
+    },
+    {
+      title: 'Executive Summary',
+      desc: 'High-level scope, process flow, strategic outcomes, and leadership view.',
+      href: '/administrator/executive-summary',
+      badge: 'Executive'
+    },
+    {
+      title: 'Workflow Console Guide',
+      desc: 'Operate demand and BRD lifecycle stages with Brain approval loops.',
+      href: '/agentic-workflow',
+      badge: 'Operations'
+    },
+    {
+      title: 'Persona Configuration',
+      desc: 'Manage model assignment, role behavior, and persona instructions.',
+      href: '/agentic-config',
+      badge: 'Admin'
+    },
+    {
+      title: 'Evaluation Evidence',
+      desc: 'Capture RO3 metrics and export Chapter 4 evidence package.',
+      href: '/evaluation',
+      badge: 'Research'
+    },
+    {
+      title: 'Thesis Analysis',
+      desc: 'Review parsed thesis extraction and research signal summaries.',
+      href: '/thesis-analyze',
+      badge: 'Research'
+    }
+  ]
 
   useEffect(() => {
     void bootstrap()
@@ -361,12 +405,56 @@ export default function AdministratorPage() {
         <div className="heroLinks">
           <Link href="/">Home</Link>
           <Link href="/dashboard">Dashboard</Link>
+          <Link href="/administrator/executive-summary">Executive Summary</Link>
           <Link href="/agentic-workflow">Workflow Console</Link>
+          <Link href="/project-documentation">Project Documentation</Link>
           <button type="button" className="secondary" onClick={logout}>Logout</button>
         </div>
       </header>
 
       {message ? <div className="banner">{message}</div> : null}
+
+      <section className="panel docsPanel">
+        <div className="sectionHead">
+          <h2>Documentation Center</h2>
+          <Link href="/project-documentation" className="ghostAction">Open Full Handbook</Link>
+        </div>
+
+        <p className="muted">
+          Use this hub to navigate project knowledge quickly. The handbook page is public so both admin and non-admin users can understand the full system.
+        </p>
+
+        <div className="docsStats">
+          <div>
+            <span className="statLabel">Active Personas</span>
+            <strong>{activePersonaCount}</strong>
+          </div>
+          <div>
+            <span className="statLabel">Recent Audit Logs Loaded</span>
+            <strong>{auditLogs.length}</strong>
+          </div>
+          <div>
+            <span className="statLabel">Session Actor</span>
+            <strong>{sessionIdentity ? `${sessionIdentity.name}` : 'Not Set'}</strong>
+          </div>
+        </div>
+
+        <div className="docsGrid">
+          {documentationCards.map((card) => (
+            <Link key={card.title} href={card.href} className="docCard">
+              <span className="docBadge">{card.badge}</span>
+              <strong>{card.title}</strong>
+              <span>{card.desc}</span>
+            </Link>
+          ))}
+
+          <a className="docCard" href="/api/agentic/audit-logs?format=csv" target="_blank" rel="noreferrer">
+            <span className="docBadge">Export</span>
+            <strong>Audit CSV Export</strong>
+            <span>Download the audit trail as CSV for compliance or thesis appendix evidence.</span>
+          </a>
+        </div>
+      </section>
 
       <section className="panel">
         <h2>Cleanup Actions</h2>
@@ -673,8 +761,103 @@ export default function AdministratorPage() {
           margin-bottom: 14px;
         }
 
+        .docsPanel {
+          background:
+            radial-gradient(circle at 8% 16%, rgba(20, 143, 180, 0.08), transparent 35%),
+            radial-gradient(circle at 92% 14%, rgba(57, 118, 218, 0.08), transparent 34%),
+            rgba(255, 255, 255, 0.94);
+        }
+
         .muted {
           color: #586f88;
+        }
+
+        .ghostAction {
+          text-decoration: none;
+          color: #0d3a64;
+          border: 1px solid #c9dcf1;
+          border-radius: 999px;
+          background: #fff;
+          padding: 7px 13px;
+          font-weight: 700;
+          white-space: nowrap;
+        }
+
+        .docsStats {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 8px;
+          margin-bottom: 10px;
+        }
+
+        .docsStats div {
+          border: 1px solid #cfe0f4;
+          border-radius: 12px;
+          background: #f8fbff;
+          padding: 9px;
+          display: grid;
+          gap: 2px;
+        }
+
+        .statLabel {
+          font-size: 11px;
+          color: #4b6682;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          font-weight: 700;
+        }
+
+        .docsStats strong {
+          color: #0f2741;
+          font-size: 15px;
+        }
+
+        .docsGrid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+        }
+
+        .docCard {
+          border: 1px solid #c5d8f0;
+          border-radius: 14px;
+          padding: 12px;
+          text-decoration: none;
+          background: linear-gradient(180deg, #fbfdff, #f2f8ff);
+          display: grid;
+          gap: 6px;
+          transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+        }
+
+        .docCard strong {
+          color: #11365c;
+          font-size: 14px;
+        }
+
+        .docCard span {
+          color: #4d647e;
+          font-size: 12px;
+          line-height: 1.35;
+        }
+
+        .docBadge {
+          display: inline-flex;
+          width: fit-content;
+          border: 1px solid #c8def3;
+          border-radius: 999px;
+          background: #ebf5ff;
+          color: #14527f;
+          font-size: 11px;
+          font-weight: 700;
+          padding: 2px 8px;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }
+
+        .docCard:hover {
+          transform: translateY(-2px);
+          border-color: #8fb5e6;
+          box-shadow: 0 12px 24px rgba(17, 24, 39, 0.1);
         }
 
         .cleanupGrid {
@@ -879,6 +1062,11 @@ export default function AdministratorPage() {
           }
 
           .cleanupGrid {
+            grid-template-columns: 1fr;
+          }
+
+          .docsStats,
+          .docsGrid {
             grid-template-columns: 1fr;
           }
 

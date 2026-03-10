@@ -14,6 +14,21 @@ function authHeader(pat) {
   return `Basic ${token}`
 }
 
+function isLikelyValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim())
+}
+
+function isPlaceholderEmail(email) {
+  const value = String(email || '').trim().toLowerCase()
+  const domains = ['test.com', 'example.com', 'example.org', 'example.net', 'invalid.local']
+  return domains.some((domain) => value.endsWith(`@${domain}`))
+}
+
+function isOutsideDirectoryPolicyMessage(message) {
+  const text = String(message || '').toLowerCase()
+  return text.includes('outside your directory') || text.includes('doesn\'t allow it') || text.includes('doesn’t allow it')
+}
+
 async function inviteUser({ org, pat, email }) {
   const url = `https://vsaex.dev.azure.com/${org}/_apis/userentitlements?api-version=7.1-preview.3`
   const res = await fetch(url, {
@@ -73,7 +88,10 @@ export default async function handler(req, res) {
     const report = {
       invited: [],
       failed: [],
+      blockedByOrgPolicy: [],
       skippedNoEmail: [],
+      skippedInvalidEmail: [],
+      skippedPlaceholderEmail: [],
       skippedAiAgents: [],
       duplicates: []
     }
@@ -93,6 +111,16 @@ export default async function handler(req, res) {
           continue
         }
 
+        if (!isLikelyValidEmail(email)) {
+          report.skippedInvalidEmail.push({ team: team.name, member: member.name, email })
+          continue
+        }
+
+        if (isPlaceholderEmail(email)) {
+          report.skippedPlaceholderEmail.push({ team: team.name, member: member.name, email })
+          continue
+        }
+
         if (seenEmails.has(email.toLowerCase())) {
           report.duplicates.push({ team: team.name, member: member.name, email })
           continue
@@ -102,6 +130,8 @@ export default async function handler(req, res) {
         const result = await inviteUser({ org, pat, email })
         if (result.ok) {
           report.invited.push({ team: team.name, member: member.name, email })
+        } else if (isOutsideDirectoryPolicyMessage(result.message)) {
+          report.blockedByOrgPolicy.push({ team: team.name, member: member.name, email, status: result.status, message: result.message })
         } else {
           report.failed.push({ team: team.name, member: member.name, email, status: result.status, message: result.message })
         }

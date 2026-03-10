@@ -49,6 +49,15 @@ npx vercel --prod
 - Navigate to Settings → Environment Variables
 - Add any required variables
 
+**SQLite runtime note (important):**
+- Vercel deployments use a read-only project filesystem.
+- The app now automatically uses `/tmp/requests.db` on Vercel for writable runtime storage.
+- Optional override: set `REQUESTS_DB_PATH` (absolute path or path relative to project root).
+- For long-term persistence across cold starts and regions, configure remote libSQL/Turso:
+   - `REQUESTS_DB_URL=libsql://<database>.turso.io`
+   - `REQUESTS_DB_AUTH_TOKEN=<token>`
+   - Alias support: `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`
+
 ### Docker Deployment
 
 **Build the Docker image:**

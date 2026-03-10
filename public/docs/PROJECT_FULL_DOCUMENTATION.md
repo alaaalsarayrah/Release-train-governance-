@@ -1,0 +1,394 @@
+# Project Full Documentation (Exhaustive)
+
+Generated At: 2026-03-09T22:53:54.337Z
+Repository Root: D:\Project
+
+## 1) Scope and Intent
+- This is the canonical, exhaustive project documentation generated from source code and configuration files.
+- It includes every discovered UI route, API route, workflow action, persona, role, and core data table.
+- It is intended for operations, governance, development handover, and thesis evidence traceability.
+
+## 2) Personas (AI Agents)
+- Key: orchestrator | Name: Agentic AI_Orcastration | Title: Brain Orchestrator | Model: qwen3:4b | Active: true
+  - Description: Controls the end-to-end SDLC flow, validates outputs from other personas, and decides approvals/rejections.
+- Key: demand | Name: Agentic AI_Demand | Title: Demander | Model: qwen3:4b | Active: true
+  - Description: Analyzes approved business requests and drafts demand details including scope, budget, risks, and timeline.
+- Key: requirement | Name: Agentic AI_Requirement | Title: Business Analyst | Model: qwen3:4b | Active: true
+  - Description: Creates and updates BRD content based on approved demand and orchestrator feedback.
+
+## 3) Human Roles and Access Identities
+- Username: admin | Role: admin | Display Name: Administrator
+- Username: operator | Role: user | Display Name: Operator
+- Session identity API allows runtime actor attribution for audit trails.
+
+## 4) Team and Sprint Operating Model
+- Teams configured: 3
+- Sprints configured: 2
+- Team: Dubai Team (Dubai) | Members: 7
+- Team: RAK Team (Ras Al Khaimah) | Members: 7
+- Team: AUH Team (Abu Dhabi) | Members: 7
+- Sprint: Sprint 1 | 2026-03-10 -> 2026-03-23 | Status: Planned
+- Sprint: Sprint 2 | 2026-03-24 -> 2026-04-06 | Status: Planned
+
+## 5) End-to-End Workflow and Process Transitions
+- Business Request created (Pending) -> Business Approval decision (Approved/Rejected)
+- Approved -> generate-demand -> Demand Generated -> Pending Brain Review
+- review-demand approve -> BRD Drafting
+- review-demand reject -> Demand Rework
+- generate-brd -> BRD Draft Generated -> Pending Brain Review
+- submit-brd -> Submitted by BA -> Pending Brain Review
+- review-brd approve -> Ready for Epic Scoping
+- review-brd reject -> BRD Rework
+- Stage 1 endpoint can run only when BR status is Approved
+- Evaluation captures metrics independently for thesis evidence and Chapter 4 exports
+
+### Workflow Action API Commands
+- generate-demand
+- review-demand
+- generate-brd
+- submit-brd
+- review-brd
+
+## 6) UI Route Inventory (All Pages)
+- /
+- /administrator
+- /administrator/executive-summary
+- /agentic-config
+- /agentic-workflow
+- /bibliography
+- /br-details/:id
+- /brd-workflow
+- /contact
+- /dashboard
+- /demo
+- /evaluation
+- /login
+- /privacy
+- /project-documentation
+- /requirements
+- /safe-prototype
+- /scrum-master
+- /support
+- /teams
+- /thesis
+- /thesis-analyze
+- /thesis-debug
+
+## 7) API Inventory (All Endpoints)
+- Route: /api/admin/cleanup-ado
+  - File: pages/api/admin/cleanup-ado.js
+  - Methods: POST
+  - Purpose: Administrative ADO cleanup routines
+  - Admin Guard: true
+  - Auth-Aware Actor Resolution: false
+  - Uses Azure DevOps API: false
+  - Uses OLLAMA/LLM Generation: false
+- Route: /api/admin/cleanup-site
+  - File: pages/api/admin/cleanup-site.js
+  - Methods: POST
+  - Purpose: Administrative site data cleanup
+  - Admin Guard: true
+  - Auth-Aware Actor Resolution: false
+  - Uses Azure DevOps API: false
+  - Uses OLLAMA/LLM Generation: false
+- Route: /api/ado-config
+  - File: pages/api/ado-config.js
+  - Methods: GET, POST
+  - Purpose: Save/read Azure DevOps configuration
+  - Admin Guard: false
+  - Auth-Aware Actor Resolution: false
+  - Uses Azure DevOps API: false
+  - Uses OLLAMA/LLM Generation: false
+- Route: /api/ado-provision
+  - File: pages/api/ado-provision.js
+  - Methods: POST
+  - Purpose: Provision Azure DevOps project/team setup
+  - Admin Guard: false
+  - Auth-Aware Actor Resolution: false
+  - Uses Azure DevOps API: false
+  - Uses OLLAMA/LLM Generation: false
+- Route: /api/ado-sync-site-users
+  - File: pages/api/ado-sync-site-users.js
+  - Methods: POST
+  - Purpose: Synchronize site users with ADO identity mapping
+  - Admin Guard: false
+  - Auth-Aware Actor Resolution: false
+  - Uses Azure DevOps API: false
+  - Uses OLLAMA/LLM Generation: false
+- Route: /api/ado-team-admin-fix
+  - File: pages/api/ado-team-admin-fix.js
+  - Methods: POST
+  - Purpose: Repair ADO team admin assignments
+  - Admin Guard: false
+  - Auth-Aware Actor Resolution: false
+  - Uses Azure DevOps API: false
+  - Uses OLLAMA/LLM Generation: false
+- Route: /api/agentic/audit-logs
+  - File: pages/api/agentic/audit-logs.js
+  - Methods: DELETE
+  - Purpose: Query/export governance audit logs
+  - Admin Guard: true
+  - Auth-Aware Actor Resolution: false
+  - Uses Azure DevOps API: false
+  - Uses OLLAMA/LLM Generation: false
+- Route: /api/agentic/chapter4-evidence
+  - File: pages/api/agentic/chapter4-evidence.js
+  - Methods: GET
+  - Purpose: Export chapter 4 evidence (JSON/CSV)
+  - Admin Guard: false
+  - Auth-Aware Actor Resolution: false
+  - Uses Azure DevOps API: false
+  - Uses OLLAMA/LLM Generation: false
+- Route: /api/agentic/evaluation
+  - File: pages/api/agentic/evaluation.js
+  - Methods: GET, POST
+  - Purpose: Capture and read thesis evaluation metrics
+  - Admin Guard: false
+  - Auth-Aware Actor Resolution: false
+  - Uses Azure DevOps API: false
+  - Uses OLLAMA/LLM Generation: false
+- Route: /api/agentic/personas
+  - File: pages/api/agentic/personas.js
+  - Methods: GET, POST, PUT, DELETE
+  - Purpose: Manage AI personas (admin protected for writes)
+  - Admin Guard: true
+  - Auth-Aware Actor Resolution: false
+  - Uses Azure DevOps API: false
+  - Uses OLLAMA/LLM Generation: false
+- Route: /api/agentic/workflow-action
+  - File: pages/api/agentic/workflow-action.js
+  - Methods: POST
+  - Purpose: Run demand/BRD workflow actions and approvals
+  - Admin Guard: false
+  - Auth-Aware Actor Resolution: true
+  - Uses Azure DevOps API: true
+  - Uses OLLAMA/LLM Generation: true
+  - Action Values: generate-demand, review-demand, generate-brd, submit-brd, review-brd
+- Route: /api/auth/login
+  - File: pages/api/auth/login.js
+  - Methods: POST
+  - Purpose: Login and session cookie issuance
+  - Admin Guard: false
+  - Auth-Aware Actor Resolution: false
+  - Uses Azure DevOps API: false
+  - Uses OLLAMA/LLM Generation: false
+- Route: /api/auth/logout
+  - File: pages/api/auth/logout.js
+  - Methods: POST
+  - Purpose: Logout and session invalidation
+  - Admin Guard: false
+  - Auth-Aware Actor Resolution: true
+  - Uses Azure DevOps API: false
+  - Uses OLLAMA/LLM Generation: false
+- Route: /api/auth/me
+  - File: pages/api/auth/me.js
+  - Methods: GET
+  - Purpose: Resolve current authenticated user
+  - Admin Guard: false
+  - Auth-Aware Actor Resolution: true
+  - Uses Azure DevOps API: false
+  - Uses OLLAMA/LLM Generation: false
+- Route: /api/business-request
+  - File: pages/api/business-request.js
+  - Methods: POST, PATCH, GET
+  - Purpose: Create/list/update business requests and BRD artifact generation
+  - Admin Guard: false
+  - Auth-Aware Actor Resolution: true
+  - Uses Azure DevOps API: false
+  - Uses OLLAMA/LLM Generation: false
+- Route: /api/create-ado-backlog
+  - File: pages/api/create-ado-backlog.js
+  - Methods: POST
+  - Purpose: Create backlog items from business request context
+  - Admin Guard: false
+  - Auth-Aware Actor Resolution: false
+  - Uses Azure DevOps API: true
+  - Uses OLLAMA/LLM Generation: false
+- Route: /api/docs/[doc]
+  - File: pages/api/docs/[doc].js
+  - Methods: UNKNOWN
+  - Purpose: Backward-compatible redirect to static markdown docs
+  - Admin Guard: false
+  - Auth-Aware Actor Resolution: false
+  - Uses Azure DevOps API: false
+  - Uses OLLAMA/LLM Generation: false
+- Route: /api/orchestrator/events-stream
+  - File: pages/api/orchestrator/events-stream.js
+  - Methods: GET
+  - Purpose: Stream or poll orchestrator events
+  - Admin Guard: false
+  - Auth-Aware Actor Resolution: false
+  - Uses Azure DevOps API: false
+  - Uses OLLAMA/LLM Generation: false
+- Route: /api/orchestrator/stage1
+  - File: pages/api/orchestrator/stage1.js
+  - Methods: POST
+  - Purpose: Run stage 1 demand analysis pipeline
+  - Admin Guard: false
+  - Auth-Aware Actor Resolution: true
+  - Uses Azure DevOps API: true
+  - Uses OLLAMA/LLM Generation: true
+- Route: /api/parse-brd
+  - File: pages/api/parse-brd.js
+  - Methods: UNKNOWN
+  - Purpose: Parse BRD document into structured fields
+  - Admin Guard: false
+  - Auth-Aware Actor Resolution: false
+  - Uses Azure DevOps API: false
+  - Uses OLLAMA/LLM Generation: false
+- Route: /api/parse-thesis
+  - File: pages/api/parse-thesis.js
+  - Methods: GET
+  - Purpose: Parse latest thesis and extract research/evaluation signals
+  - Admin Guard: false
+  - Auth-Aware Actor Resolution: false
+  - Uses Azure DevOps API: false
+  - Uses OLLAMA/LLM Generation: false
+- Route: /api/scrum-master
+  - File: pages/api/scrum-master.js
+  - Methods: POST
+  - Purpose: AI scrum assistant endpoint
+  - Admin Guard: false
+  - Auth-Aware Actor Resolution: false
+  - Uses Azure DevOps API: false
+  - Uses OLLAMA/LLM Generation: false
+- Route: /api/session-identity
+  - File: pages/api/session-identity.js
+  - Methods: GET, POST, DELETE
+  - Purpose: Set/read runtime actor identity for audit traceability
+  - Admin Guard: true
+  - Auth-Aware Actor Resolution: false
+  - Uses Azure DevOps API: false
+  - Uses OLLAMA/LLM Generation: false
+- Route: /api/sync-ado
+  - File: pages/api/sync-ado.js
+  - Methods: POST
+  - Purpose: Sync parsed requirements to Azure DevOps work items
+  - Admin Guard: false
+  - Auth-Aware Actor Resolution: false
+  - Uses Azure DevOps API: true
+  - Uses OLLAMA/LLM Generation: false
+- Route: /api/team-setup
+  - File: pages/api/team-setup.js
+  - Methods: GET, POST, PATCH
+  - Purpose: Read/seed/update team and sprint setup
+  - Admin Guard: false
+  - Auth-Aware Actor Resolution: false
+  - Uses Azure DevOps API: false
+  - Uses OLLAMA/LLM Generation: false
+- Route: /api/upload
+  - File: pages/api/upload.js
+  - Methods: POST
+  - Purpose: Upload PDF/DOCX/DOC files to public uploads
+  - Admin Guard: false
+  - Auth-Aware Actor Resolution: false
+  - Uses Azure DevOps API: false
+  - Uses OLLAMA/LLM Generation: false
+
+### Internal API Library Modules
+- pages/api/_lib/admin-cleanup.js
+- pages/api/_lib/auth.js
+- pages/api/_lib/requests-db.js
+- pages/api/_lib/session-identity.js
+
+## 8) Data Model and Persistence
+- Table: business_requests
+  - id TEXT PRIMARY KEY
+  - description TEXT
+  - unit TEXT
+  - urgency TEXT
+  - date TEXT
+  - justif TEXT
+  - status TEXT DEFAULT 'Pending'
+  - decision_reason TEXT
+  - requirement_created INTEGER DEFAULT 0
+  - requirement_doc TEXT
+  - requirement_details TEXT
+  - synced_to_ado INTEGER DEFAULT 0
+  - ado_backlog_id TEXT
+  - team_name TEXT
+  - sprint_name TEXT
+  - epic_status TEXT
+  - user_story_status TEXT
+  - stage1_status TEXT DEFAULT 'Not Started'
+  - stage1_output TEXT
+  - stage1_error TEXT
+  - stage1_completed_at TEXT
+  - stage1_ado_work_item_id TEXT
+  - stage1_model TEXT
+  - demand_status TEXT DEFAULT 'Not Started'
+  - demand_output TEXT
+  - demand_model TEXT
+  - demand_review_status TEXT DEFAULT 'Not Reviewed'
+  - demand_review_reason TEXT
+  - demand_reviewed_at TEXT
+  - demand_ado_work_item_id TEXT
+  - requirement_status TEXT DEFAULT 'Not Started'
+  - requirement_brd_version INTEGER DEFAULT 0
+  - requirement_review_status TEXT DEFAULT 'Not Reviewed'
+  - requirement_review_reason TEXT
+  - requirement_reviewed_at TEXT
+  - requirement_ado_work_item_id TEXT
+  - workflow_current_stage TEXT DEFAULT 'Business Request'
+  - created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+- Table: orchestrator_events
+  - id INTEGER PRIMARY KEY AUTOINCREMENT
+  - br_id TEXT NOT NULL
+  - stage TEXT NOT NULL
+  - event_type TEXT NOT NULL
+  - message TEXT NOT NULL
+  - payload TEXT
+  - created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+- Table: audit_logs
+  - id INTEGER PRIMARY KEY AUTOINCREMENT
+  - br_id TEXT NOT NULL
+  - stage TEXT NOT NULL
+  - actor TEXT NOT NULL
+  - action TEXT NOT NULL
+  - details TEXT
+  - created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+- Table: thesis_evaluations
+  - id INTEGER PRIMARY KEY AUTOINCREMENT
+  - scenario_id TEXT NOT NULL
+  - scenario_name TEXT
+  - participant_id TEXT
+  - participant_role TEXT
+  - perceived_usefulness INTEGER
+  - ease_of_use INTEGER
+  - trust INTEGER
+  - intention_to_use INTEGER
+  - task_completion_minutes REAL
+  - recommendations_generated INTEGER
+  - recommendations_accepted INTEGER
+  - clarification_requests INTEGER
+  - system_response_ms INTEGER
+  - error_count INTEGER
+  - notes TEXT
+  - interview_notes TEXT
+  - created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+- Additional JSON persistence files are used for personas, users, sessions (legacy/local), and team setup.
+
+## 9) Governance, Audit, and Evidence
+- Every important workflow action can emit orchestrator events and audit logs with actor/time metadata.
+- Audit export endpoint supports CSV extraction for governance/compliance evidence.
+- Thesis evaluation endpoint captures TAM and operational metrics and supports Chapter 4 CSV/JSON exports.
+
+## 10) Document and Thesis Processing Flows
+- Upload API accepts PDF/DOCX/DOC and stores files in public/uploads with safe filenames.
+- Thesis parser supports PDF and DOCX, extracts abstract/TOC/chapters and research/evaluation signals.
+- BRD parser extracts requirement data from uploaded BRD documents.
+- Business request API can generate standardized BRD DOCX artifacts for approved demand paths.
+
+## 11) Integrations and Delivery
+- Azure DevOps integration spans configuration, provisioning, backlog/work item sync, and admin repair utilities.
+- Web app is deployed on Vercel; mobile wrapper uses Expo/EAS configuration under mobile/.
+- Static docs and downloadable artifacts are served from public/docs and public/downloads.
+
+## 12) Completeness Checklist (Generated)
+- UI routes documented: 23
+- API endpoints documented: 26
+- Internal API modules documented: 4
+- Personas documented: 3
+- Auth users documented: 2
+- DB tables documented: 4
+- Note: This file is generated from source to reduce omission risk. Re-run after code changes.

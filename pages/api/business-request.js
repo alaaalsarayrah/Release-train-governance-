@@ -5,11 +5,13 @@ import {
   addAuditLog,
   addOrchestratorEvent,
   dbAll,
+  dbGet,
   dbRun,
   updateBusinessRequestFields,
   withDb
 } from './_lib/requests-db'
 import { resolveActorFromRequest } from './_lib/session-identity'
+import { requireAdmin } from './_lib/auth'
 
 function nowIso() {
   return new Date().toISOString()
@@ -754,6 +756,41 @@ export default async function handler(req, res) {
     } catch (err) {
       console.error('DB select error', err)
       return res.status(500).json({ message: 'Query failed', error: String(err.message || err) })
+    }
+  }
+
+  if (req.method === 'DELETE') {
+    const adminSession = requireAdmin(req, res)
+    if (!adminSession) return
+
+    try {
+      const report = await withDb(async (db) => {
+        const before = await dbGet(
+          db,
+          `SELECT
+            (SELECT COUNT(*) FROM business_requests) AS br,
+            (SELECT COUNT(*) FROM orchestrator_events) AS ev,
+            (SELECT COUNT(*) FROM audit_logs) AS al`
+        )
+
+        await dbRun(db, 'DELETE FROM business_requests')
+        await dbRun(db, 'DELETE FROM orchestrator_events')
+        await dbRun(db, 'DELETE FROM audit_logs')
+
+        return {
+          businessRequestsDeleted: Number(before?.br || 0),
+          eventsDeleted: Number(before?.ev || 0),
+          auditLogsDeleted: Number(before?.al || 0)
+        }
+      })
+
+      return res.status(200).json({ success: true, report })
+    } catch (err) {
+      return res.status(500).json({
+        success: false,
+        message: 'Business request cleanup failed',
+        error: String(err.message || err)
+      })
     }
   }
 

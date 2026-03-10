@@ -6,6 +6,7 @@ const usersPath = path.join(process.cwd(), 'data', 'auth-users.json')
 const sessionsPath = path.join(process.cwd(), 'data', 'auth-sessions.json')
 const cookieName = 'agentic_auth_session'
 const sessionTtlMs = 7 * 24 * 60 * 60 * 1000
+const sessionSecret = process.env.AUTH_SESSION_SECRET || process.env.NEXTAUTH_SECRET || 'dev-only-session-secret-change-me'
 
 const defaultUsers = [
   {
@@ -56,26 +57,97 @@ function parseCookieHeader(headerValue) {
   return out
 }
 
-function ensureAuthStorage() {
+function ensureUsersStorage() {
   ensureFile(usersPath, defaultUsers)
-  ensureFile(sessionsPath, {})
 }
 
 function loadUsers() {
-  ensureAuthStorage()
+  ensureUsersStorage()
   const users = parseJsonFile(usersPath, defaultUsers)
   return Array.isArray(users) ? users : defaultUsers
 }
 
 function loadSessions() {
-  ensureAuthStorage()
+  // Legacy fallback only; in serverless deployments this may not be writable.
   const sessions = parseJsonFile(sessionsPath, {})
   return sessions && typeof sessions === 'object' ? sessions : {}
 }
 
 function saveSessions(sessions) {
-  ensureAuthStorage()
-  saveJsonFile(sessionsPath, sessions)
+  try {
+    saveJsonFile(sessionsPath, sessions)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function base64urlEncode(input) {
+  return Buffer.from(input)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '')
+}
+
+function base64urlDecode(input) {
+  const normalized = String(input || '')
+    .replace(/-/g, '+')
+    .replace(/_/g, '/')
+  const padLength = (4 - (normalized.length % 4)) % 4
+  return Buffer.from(normalized + '='.repeat(padLength), 'base64').toString('utf-8')
+}
+
+function signTokenParts(payloadPart) {
+  return base64urlEncode(
+    crypto
+      .createHmac('sha256', sessionSecret)
+      .update(payloadPart)
+      .digest()
+  )
+}
+
+function buildSignedSessionToken(user) {
+  const now = Date.now()
+  const payload = {
+    ...sanitizeSessionUser(user),
+    iat: now,
+    exp: now + sessionTtlMs
+  }
+
+  const payloadPart = base64urlEncode(JSON.stringify(payload))
+  const signaturePart = signTokenParts(payloadPart)
+  return `v1.${payloadPart}.${signaturePart}`
+}
+
+function readSignedSessionToken(rawToken) {
+  const token = String(rawToken || '')
+  if (!token.startsWith('v1.')) return null
+
+  const parts = token.split('.')
+  if (parts.length !== 3) return null
+
+  const payloadPart = parts[1]
+  const signaturePart = parts[2]
+  const expectedSignature = signTokenParts(payloadPart)
+
+  if (signaturePart !== expectedSignature) {
+    return null
+  }
+
+  try {
+    const payload = JSON.parse(base64urlDecode(payloadPart))
+    const exp = Number(payload?.exp || 0)
+    if (!exp || Date.now() > exp) {
+      return null
+    }
+
+    return {
+      user: sanitizeSessionUser(payload)
+    }
+  } catch {
+    return null
+  }
 }
 
 function sanitizeRole(role) {
@@ -116,19 +188,12 @@ export function authenticateUser(username, password) {
 }
 
 export function createSession(user) {
-  const sessions = loadSessions()
-  cleanupExpiredSessions(sessions)
-  const sessionId = crypto.randomUUID()
-  sessions[sessionId] = {
-    ...sanitizeSessionUser(user),
-    createdAt: Date.now()
-  }
-  saveSessions(sessions)
-  return sessionId
+  // Stateless signed token works in read-only serverless environments.
+  return buildSignedSessionToken(user)
 }
 
 export function clearSession(sessionId) {
-  if (!sessionId) return
+  if (!sessionId || String(sessionId).startsWith('v1.')) return
   const sessions = loadSessions()
   if (sessions[sessionId]) {
     delete sessions[sessionId]
@@ -138,9 +203,25 @@ export function clearSession(sessionId) {
 
 export function getSessionFromRequest(req) {
   const cookies = parseCookieHeader(req?.headers?.cookie || '')
-  const sessionId = cookies[cookieName]
+  const sessionIdRaw = cookies[cookieName]
+  const sessionId = (() => {
+    try {
+      return decodeURIComponent(sessionIdRaw || '')
+    } catch {
+      return String(sessionIdRaw || '')
+    }
+  })()
   if (!sessionId) return null
 
+  const signed = readSignedSessionToken(sessionId)
+  if (signed?.user) {
+    return {
+      sessionId,
+      user: signed.user
+    }
+  }
+
+  // Legacy file-based session fallback for local backward compatibility.
   const sessions = loadSessions()
   cleanupExpiredSessions(sessions)
   const record = sessions[sessionId]

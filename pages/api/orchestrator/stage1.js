@@ -9,6 +9,12 @@ import {
   withDb
 } from '../_lib/requests-db'
 import { resolveActorFromRequest } from '../_lib/session-identity'
+import {
+  appendAssignedToPatch,
+  isAssigneeError,
+  removeAssignedToPatch,
+  resolveAssigneeForAdo
+} from '../../../lib/ado/assignment'
 
 const STAGE_NAME = 'stage1-demand-manager'
 const defaultInstructionPath = path.join(
@@ -161,11 +167,13 @@ async function postDemandToAdo(br, demandOutput) {
     { op: 'add', path: '/fields/System.Description', value: description },
     { op: 'add', path: '/fields/System.Tags', value: 'Demand;AI-Orchestrator;Stage1' }
   ]
+  const assignedTo = await resolveAssigneeForAdo({ config })
+  const workItemPatchWithAssignee = appendAssignedToPatch(workItemPatch, assignedTo)
 
   // Prefer Issue, fallback to Task for templates that don't include Issue.
   try {
     const issue = await withTimeout(
-      () => witApi.createWorkItem(null, workItemPatch, config.project, 'Issue'),
+      () => witApi.createWorkItem(null, workItemPatchWithAssignee, config.project, 'Issue'),
       adoTimeoutMs,
       'ADO Issue creation'
     )
@@ -178,9 +186,32 @@ async function postDemandToAdo(br, demandOutput) {
       workItemType: 'Issue'
     }
   } catch (issueErr) {
+    const patchWithoutAssignee = removeAssignedToPatch(workItemPatchWithAssignee)
+    const canRetryWithoutAssignee = assignedTo && isAssigneeError(issueErr)
+
+    if (canRetryWithoutAssignee) {
+      try {
+        const issueWithoutAssignee = await withTimeout(
+          () => witApi.createWorkItem(null, patchWithoutAssignee, config.project, 'Issue'),
+          adoTimeoutMs,
+          'ADO Issue creation (without assignee)'
+        )
+        return {
+          skipped: false,
+          workItemId: issueWithoutAssignee?.id || null,
+          url: issueWithoutAssignee?.id
+            ? `https://dev.azure.com/${config.organization}/${config.project}/_workitems/edit/${issueWithoutAssignee.id}`
+            : null,
+          workItemType: 'Issue'
+        }
+      } catch {
+        // Continue to Task fallback.
+      }
+    }
+
     try {
       const task = await withTimeout(
-        () => witApi.createWorkItem(null, workItemPatch, config.project, 'Task'),
+        () => witApi.createWorkItem(null, workItemPatchWithAssignee, config.project, 'Task'),
         adoTimeoutMs,
         'ADO Task creation'
       )
@@ -193,6 +224,26 @@ async function postDemandToAdo(br, demandOutput) {
         workItemType: 'Task'
       }
     } catch (taskErr) {
+      if (assignedTo && isAssigneeError(taskErr)) {
+        try {
+          const taskWithoutAssignee = await withTimeout(
+            () => witApi.createWorkItem(null, patchWithoutAssignee, config.project, 'Task'),
+            adoTimeoutMs,
+            'ADO Task creation (without assignee)'
+          )
+          return {
+            skipped: false,
+            workItemId: taskWithoutAssignee?.id || null,
+            url: taskWithoutAssignee?.id
+              ? `https://dev.azure.com/${config.organization}/${config.project}/_workitems/edit/${taskWithoutAssignee.id}`
+              : null,
+            workItemType: 'Task'
+          }
+        } catch {
+          // Fall through to unified failure message.
+        }
+      }
+
       return {
         skipped: true,
         reason: `ADO create failed: ${formatError(issueErr)} | ${formatError(taskErr)}`

@@ -255,7 +255,9 @@ export default function Dashboard() {
         <div className="heroLinks">
           <Link href="/">Home</Link>
           <Link href="/agentic-workflow">Workflow Console</Link>
+          <Link href="/sprint-planning-workspace">Sprint Planning Workspace</Link>
           <Link href="/agentic-config">Personas & Audit</Link>
+          <Link href="/evaluation">Evaluation</Link>
           <Link href="/teams">Teams</Link>
         </div>
       </header>

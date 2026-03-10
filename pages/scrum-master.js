@@ -66,7 +66,12 @@ export default function ScrumMaster() {
       const res = await fetch('/api/create-ado-backlog', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ backlog })
+        body: JSON.stringify({
+          backlog,
+          teamName: selectedTeam,
+          sprintName: selectedSprint,
+          brId: selectedBR
+        })
       })
       const data = await res.json()
 
@@ -101,7 +106,7 @@ export default function ScrumMaster() {
       }
 
       alert(
-        `Created ${data.summary.epicsCreated} epics, ${data.summary.featuresCreated} features, and ${data.summary.userStoriesCreated} user stories in Azure DevOps.`
+        `Created ${data.summary.epicsCreated} epics, ${data.summary.featuresCreated} features, ${data.summary.userStoriesCreated} user stories, and ${data.summary.tasksCreated || 0} tasks in Azure DevOps.`
       )
     } catch (err) {
       console.error(err)
@@ -128,6 +133,7 @@ export default function ScrumMaster() {
           <Link href="/dashboard">Dashboard</Link>
           <Link href="/agentic-workflow">Workflow Console</Link>
           <Link href="/teams">Teams</Link>
+          <Link href="/ado-work-item-types">ADO Types</Link>
         </div>
       </header>
 
@@ -283,7 +289,32 @@ export default function ScrumMaster() {
                   <p>{adoResults.summary.userStoriesCreated}</p>
                   <span>User Stories</span>
                 </article>
+                <article>
+                  <p>{adoResults.summary.tasksCreated || 0}</p>
+                  <span>Tasks</span>
+                </article>
               </div>
+
+              {adoResults.metadata ? (
+                <div className="metaRow" style={{ marginTop: 8 }}>
+                  <span>Process: {adoResults.metadata.processHint || '-'}</span>
+                  <span>Epic Type: {adoResults.metadata.typeMapping?.epicType || '-'}</span>
+                  <span>Feature Type: {adoResults.metadata.typeMapping?.featureType || '-'}</span>
+                  <span>Story Type: {adoResults.metadata.typeMapping?.storyType || '-'}</span>
+                  <span>Task Type: {adoResults.metadata.typeMapping?.taskType || '-'}</span>
+                  <span>Sprint Path: {adoResults.metadata.iterationPath || 'Not assigned'}</span>
+                  <span>Burndown Ready: {adoResults.metadata.burndownReady ? 'Yes' : 'No'}</span>
+                </div>
+              ) : null}
+
+              {adoResults.metadata?.guardrails?.length ? (
+                <div className="errorBox" style={{ borderColor: '#f59e0b', background: '#fffbeb', color: '#7c2d12' }}>
+                  <h3>Mapping Guardrails</h3>
+                  {adoResults.metadata.guardrails.map((warn, idx) => (
+                    <p key={idx}>{warn}</p>
+                  ))}
+                </div>
+              ) : null}
 
               <div className="details">
                 {adoResults.results?.epics?.length ? (
@@ -318,7 +349,27 @@ export default function ScrumMaster() {
                     ))}
                   </div>
                 ) : null}
+
+                {adoResults.results?.tasks?.length ? (
+                  <div>
+                    <h3>Tasks</h3>
+                    {adoResults.results.tasks.map((task, idx) => (
+                      <a key={idx} className="itemLink" href={task.url} target="_blank" rel="noreferrer">
+                        #{task.id} - {task.title}
+                      </a>
+                    ))}
+                  </div>
+                ) : null}
               </div>
+
+              {adoResults.results?.warnings?.length ? (
+                <div className="errorBox" style={{ borderColor: '#facc15', background: '#fffbeb', color: '#78350f' }}>
+                  <h3>Warnings</h3>
+                  {adoResults.results.warnings.map((warn, idx) => (
+                    <p key={idx}>{warn}</p>
+                  ))}
+                </div>
+              ) : null}
 
               {adoResults.results?.errors?.length ? (
                 <div className="errorBox">
