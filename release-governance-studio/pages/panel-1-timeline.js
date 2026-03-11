@@ -72,6 +72,15 @@ function getOverlap(startDate, endDate, rangeStart, rangeEnd) {
   return { overlapStart, overlapEnd };
 }
 
+function getEnvironmentCategory(environment) {
+  const text = `${environment?.name || ""} ${environment?.track || ""}`.toLowerCase();
+
+  if (text.includes("replica")) return "replica";
+  if (text.includes("production") || text.includes("prod")) return "production";
+  if (text.includes("uat")) return "uat";
+  return "other";
+}
+
 export default function PanelOneTimeline() {
   const today = new Date();
   const [config, setConfig] = useState(null);
@@ -139,6 +148,10 @@ export default function PanelOneTimeline() {
     return map;
   }, [config]);
 
+  const activeFreezes = useMemo(() => {
+    return (config?.productionFreezes || []).filter((freeze) => freeze.active);
+  }, [config]);
+
   const yearOptions = useMemo(() => {
     const years = new Set([String(today.getFullYear()), selectedYear]);
 
@@ -190,7 +203,7 @@ export default function PanelOneTimeline() {
   const unitMode = !isCustomActive && viewMode === "quarter" ? "week" : "day";
   const totalDays = dayDiff(rangeStart, rangeEnd) + 1;
   const totalUnits = unitMode === "week" ? Math.max(1, Math.ceil(totalDays / 7)) : totalDays;
-  const labelColumnWidth = "120px";
+  const labelColumnWidth = "148px";
 
   const scaleHeaders = useMemo(() => {
     return Array.from({ length: totalUnits }, (_, index) => {
@@ -217,6 +230,12 @@ export default function PanelOneTimeline() {
       map[train.targetEnvironmentId].push(train);
     });
 
+    return map;
+  }, [config]);
+
+  const trainMap = useMemo(() => {
+    const map = new Map();
+    (config?.releaseTrains || []).forEach((train) => map.set(train.id, train));
     return map;
   }, [config]);
 
@@ -359,8 +378,39 @@ export default function PanelOneTimeline() {
 
         {environments.map((environment) => (
           <div key={environment.id} className="timeline-row panel1-row" style={{ gridTemplateColumns: `${labelColumnWidth} minmax(0, 1fr)` }}>
-            <aside style={{ borderColor: environment.color }}>{environment.name}</aside>
-            <div className="timeline-track">
+            <aside className="panel1-lane-label" style={{ borderColor: environment.color }}>{environment.name}</aside>
+            <div className="timeline-track panel1-track">
+              {(getEnvironmentCategory(environment) === "replica" || getEnvironmentCategory(environment) === "production")
+                ? activeFreezes.map((freeze) => {
+                    const freezeStart = parseDateValue(freeze.startDate);
+                    const freezeEnd = parseDateValue(freeze.endDate);
+                    if (!freezeStart || !freezeEnd) return null;
+
+                    const overlap = getOverlap(freezeStart, freezeEnd, rangeStart, rangeEnd);
+                    if (!overlap) return null;
+
+                    const startOffsetDays = dayDiff(rangeStart, overlap.overlapStart);
+                    const endOffsetDays = dayDiff(rangeStart, overlap.overlapEnd);
+                    const startUnit = unitMode === "week" ? Math.floor(startOffsetDays / 7) : startOffsetDays;
+                    const endUnit = unitMode === "week" ? Math.floor(endOffsetDays / 7) : endOffsetDays;
+                    const left = (startUnit / totalUnits) * 100;
+                    const width = ((endUnit - startUnit + 1) / totalUnits) * 100;
+
+                    return (
+                      <div
+                        key={`${environment.id}-${freeze.id}`}
+                        className="panel1-freeze-block"
+                        style={{
+                          left: `${left}%`,
+                          width: `${Math.max(width, unitMode === "week" ? 8 : 4)}%`
+                        }}
+                      >
+                        <small>Freeze</small>
+                      </div>
+                    );
+                  })
+                : null}
+
               {(trainsByEnvironment[environment.id] || []).map((train) => {
                 const startDate = parseDateValue(train.startDate);
                 const endDate = parseDateValue(train.endDate);
@@ -376,29 +426,63 @@ export default function PanelOneTimeline() {
                 const endUnit = unitMode === "week" ? Math.floor(endOffsetDays / 7) : endOffsetDays;
                 const left = (startUnit / totalUnits) * 100;
                 const width = ((endUnit - startUnit + 1) / totalUnits) * 100;
+                const compact = width < (unitMode === "week" ? 15 : 17);
+                const isRetrofit = String(train.lifecycleType || "").toLowerCase() === "retrofit";
+                const retrofitSource = isRetrofit ? trainMap.get(train.retrofitSourceReleaseTrainId) : null;
+                const isCrossUatRetrofit =
+                  Boolean(retrofitSource) && retrofitSource.targetEnvironmentId !== train.targetEnvironmentId;
+                const statusClass = isRetrofit
+                  ? isCrossUatRetrofit
+                    ? "train-status-tag retrofit-status-tag retrofit-cross-uat"
+                    : "train-status-tag retrofit-status-tag"
+                  : "train-status-tag";
+                const statusText = isRetrofit
+                  ? isCrossUatRetrofit
+                    ? "Retrofit Other UAT"
+                    : "Retrofit"
+                  : train.status;
+
+                const sizeLabels = (train.releaseSizeIds || [])
+                  .map((sizeId) => releaseSizeMap.get(sizeId))
+                  .filter(Boolean);
+
+                const visibleSizeLabels = compact ? [] : sizeLabels.slice(0, 2);
+                const hiddenSizeCount = compact ? 0 : Math.max(0, sizeLabels.length - visibleSizeLabels.length);
 
                 return (
                   <article
                     key={train.id}
-                    className="train-chip"
-                    style={{ left: `${left}%`, width: `${Math.max(width, unitMode === "week" ? 6 : 4)}%`, background: environment.color }}
+                    className={compact ? `train-chip panel1-chip compact${isRetrofit ? " retrofit" : ""}` : `train-chip panel1-chip${isRetrofit ? " retrofit" : ""}`}
+                    style={{
+                      left: `${left}%`,
+                      width: `${Math.max(width, unitMode === "week" ? 8 : 6)}%`,
+                      minWidth: compact ? "132px" : "220px",
+                      background: environment.color
+                    }}
                   >
-                    <strong>{train.targetRelease}</strong>
-                    <span>{train.name}</span>
-                    <span>
-                      {train.startDate} to {train.endDate}
-                    </span>
-                    <small className="train-status-tag">{train.status}</small>
-                    <div className="train-chip-tags">
-                      {(train.releaseSizeIds || []).map((sizeId) => {
-                        const sizeName = releaseSizeMap.get(sizeId);
-                        if (!sizeName) return null;
-                        return (
-                          <small key={`${train.id}-${sizeId}`} className="train-chip-tag">
+                    <div className="panel1-chip-top">
+                      <strong className="panel1-chip-release">{train.targetRelease}</strong>
+                      <small className={statusClass}>{statusText}</small>
+                    </div>
+
+                    <p className="panel1-chip-name">{train.name}</p>
+
+                    <div className="panel1-chip-meta">
+                      <span className="panel1-chip-dates">
+                        {train.startDate} to {train.endDate}
+                      </span>
+
+                      <div className="train-chip-tags panel1-size-row">
+                        {visibleSizeLabels.map((sizeName) => (
+                          <small key={`${train.id}-${sizeName}`} className="train-chip-tag panel1-size-pill">
                             {sizeName}
                           </small>
-                        );
-                      })}
+                        ))}
+
+                        {hiddenSizeCount > 0 ? (
+                          <small className="train-chip-tag panel1-size-pill">+{hiddenSizeCount}</small>
+                        ) : null}
+                      </div>
                     </div>
                   </article>
                 );

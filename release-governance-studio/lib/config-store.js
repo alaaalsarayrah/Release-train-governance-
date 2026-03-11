@@ -69,6 +69,28 @@ function diffDaysInclusive(startDate, endDate) {
   return diff + 1;
 }
 
+function getWeekOfMonth(dateValue) {
+  return Math.floor((dateValue.getDate() - 1) / 7) + 1;
+}
+
+function buildReleaseVersionFromDate(dateValue) {
+  const yearPart = dateValue.getFullYear() % 100;
+  const monthPart = dateValue.getMonth() + 1;
+  const weekPart = getWeekOfMonth(dateValue);
+  return `${yearPart}.${monthPart}.${weekPart}`;
+}
+
+function parseReleaseVersion(value) {
+  const match = /^([0-9]{2})\.([0-9]{1,2})\.([0-9]{1,2})$/.exec(String(value || "").trim());
+  if (!match) return null;
+
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    week: Number(match[3])
+  };
+}
+
 function getStartWeekForDate(startDate) {
   const startOfYear = new Date(startDate.getFullYear(), 0, 1);
   const days = Math.floor((startDate.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
@@ -123,6 +145,29 @@ function getEnvironmentCategory(environment) {
   if (text.includes("production") || text.includes("prod")) return "production";
   if (text.includes("uat")) return "uat";
   return "other";
+}
+
+function isRetrofitTrain(train) {
+  return String(train.lifecycleType || "").toLowerCase() === "retrofit";
+}
+
+function alignUatReleaseVersions(releaseTrains, environments) {
+  const envCategoryMap = new Map((environments || []).map((env) => [env.id, getEnvironmentCategory(env)]));
+
+  return releaseTrains.map((train) => {
+    const category = envCategoryMap.get(train.targetEnvironmentId) || "other";
+    if (category !== "uat" || isRetrofitTrain(train)) {
+      return train;
+    }
+
+    const startDate = parseDate(train.startDate);
+    if (!startDate) return train;
+
+    return {
+      ...train,
+      targetRelease: buildReleaseVersionFromDate(startDate)
+    };
+  });
 }
 
 function deriveDatesFromLegacyWeeks(train) {
@@ -216,6 +261,7 @@ function hasSizeByName(train, releaseSizeMap, targetName) {
 
 function validateUatDurationRules(train, releaseSizeMap, category) {
   if (category !== "uat") return;
+  if (String(train.lifecycleType || "").toLowerCase() === "retrofit") return;
 
   const start = parseDate(train.startDate);
   const end = parseDate(train.endDate);
@@ -223,16 +269,172 @@ function validateUatDurationRules(train, releaseSizeMap, category) {
 
   const durationDays = diffDaysInclusive(start, end);
 
-  if (hasSizeByName(train, releaseSizeMap, "Very Large")) {
-    return;
+  const hasVeryLarge = hasSizeByName(train, releaseSizeMap, "Very Large");
+  const hasLarge = hasSizeByName(train, releaseSizeMap, "Large");
+  const hasMedium = hasSizeByName(train, releaseSizeMap, "Medium");
+  const hasSmall = hasSizeByName(train, releaseSizeMap, "Small");
+
+  if (hasVeryLarge && durationDays !== 28) {
+    throw new Error("Very Large release size in UAT must be exactly 4 weeks (28 days).");
   }
 
-  if (hasSizeByName(train, releaseSizeMap, "Large") && durationDays !== 21) {
+  if (!hasVeryLarge && hasLarge && durationDays !== 21) {
     throw new Error("Large release size in UAT must be exactly 3 weeks (21 days).");
   }
 
-  if (!hasSizeByName(train, releaseSizeMap, "Large") && hasSizeByName(train, releaseSizeMap, "Medium") && durationDays !== 14) {
+  if (!hasVeryLarge && !hasLarge && hasMedium && durationDays !== 14) {
     throw new Error("Medium release size in UAT must be exactly 2 weeks (14 days).");
+  }
+
+  if (!hasVeryLarge && !hasLarge && !hasMedium && hasSmall && durationDays !== 7) {
+    throw new Error("Small release size in UAT must be exactly 1 week (7 days).");
+  }
+}
+
+function validateUatReleaseVersionRules(train, category) {
+  if (category !== "uat") return;
+  if (isRetrofitTrain(train)) return;
+
+  const startDate = parseDate(train.startDate);
+  if (!startDate) return;
+
+  const parsed = parseReleaseVersion(train.targetRelease);
+  if (!parsed) {
+    throw new Error("UAT release version format must be YY.M.W (example: 26.3.1).");
+  }
+
+  const expected = buildReleaseVersionFromDate(startDate);
+  const normalized = `${parsed.year}.${parsed.month}.${parsed.week}`;
+  if (normalized !== expected) {
+    throw new Error(`UAT release version must match start date week. Expected ${expected}.`);
+  }
+}
+
+function validateUatReleaseVersionUniqueness(train, allTrains, envCategoryMap) {
+  const category = envCategoryMap.get(train.targetEnvironmentId) || "other";
+  if (category !== "uat") return;
+  if (isRetrofitTrain(train)) return;
+
+  const duplicate = allTrains.some((other) => {
+    if (other.id === train.id) return false;
+    if (String(other.targetRelease || "") !== String(train.targetRelease || "")) return false;
+
+    const otherCategory = envCategoryMap.get(other.targetEnvironmentId) || "other";
+    if (otherCategory !== "uat") return false;
+    if (isRetrofitTrain(other)) return false;
+
+    return other.targetEnvironmentId === train.targetEnvironmentId;
+  });
+
+  if (duplicate) {
+    throw new Error(`Release version ${train.targetRelease} already exists in the same UAT environment.`);
+  }
+}
+
+function validateReplicaSequenceCollision(train, allTrains, envCategoryMap) {
+  const category = envCategoryMap.get(train.targetEnvironmentId) || "other";
+  if (category !== "replica") return;
+
+  const startDate = parseDate(train.startDate);
+  if (!startDate) return;
+  const startDateText = formatDate(startDate);
+
+  const uatEndingSameDay = allTrains.filter((other) => {
+    if (other.id === train.id) return false;
+    const otherCategory = envCategoryMap.get(other.targetEnvironmentId) || "other";
+    if (otherCategory !== "uat") return false;
+    if (isRetrofitTrain(other)) return false;
+    return String(other.endDate || "") === startDateText;
+  });
+
+  if (uatEndingSameDay.length > 1) {
+    throw new Error("Replica start date cannot match the end date of more than one UAT release train.");
+  }
+}
+
+function validateProductionAfterReplica(train, allTrains, envCategoryMap) {
+  if (!train.sourceReplicaReleaseTrainId) return;
+  if (isRetrofitTrain(train)) return;
+
+  const category = envCategoryMap.get(train.targetEnvironmentId) || "other";
+  if (category !== "production") {
+    throw new Error("Release train linked to a replica source must target Production.");
+  }
+
+  const replica = allTrains.find((item) => item.id === train.sourceReplicaReleaseTrainId);
+  if (!replica) {
+    throw new Error("Production release train replica source is missing.");
+  }
+
+  const replicaCategory = envCategoryMap.get(replica.targetEnvironmentId) || "other";
+  if (replicaCategory !== "replica") {
+    throw new Error("Production release train sourceReplicaReleaseTrainId must point to a Replica train.");
+  }
+
+  const productionStart = parseDate(train.startDate);
+  const replicaEnd = parseDate(replica.endDate);
+  if (!productionStart || !replicaEnd) return;
+
+  if (productionStart <= replicaEnd) {
+    throw new Error("Production release train must start after replica release train end date.");
+  }
+}
+
+function validateRetrofitRules(train, category, allTrains, envCategoryMap) {
+  if (String(train.lifecycleType || "").toLowerCase() !== "retrofit") return;
+  if (category !== "uat") {
+    throw new Error("Retrofit release train must target a UAT environment.");
+  }
+
+  const start = parseDate(train.startDate);
+  const end = parseDate(train.endDate);
+  if (!start || !end) return;
+
+  const durationDays = diffDaysInclusive(start, end);
+  if (durationDays !== 7) {
+    throw new Error("Retrofit release train must be planned for exactly 1 week (7 days).");
+  }
+
+  if (!train.retrofitSourceReleaseTrainId) {
+    return;
+  }
+
+  const sourceTrain = allTrains.find((item) => item.id === train.retrofitSourceReleaseTrainId);
+  if (!sourceTrain) {
+    throw new Error("Retrofit source release train is missing.");
+  }
+
+  const sourceCategory = envCategoryMap.get(sourceTrain.targetEnvironmentId) || "other";
+  if (sourceCategory !== "uat") {
+    throw new Error("Retrofit source release train must be from UAT.");
+  }
+
+  if (sourceTrain.targetEnvironmentId === train.targetEnvironmentId) {
+    throw new Error("Retrofit release train must be planned in a different UAT environment.");
+  }
+
+  const sourceEnd = parseDate(sourceTrain.endDate);
+  if (sourceEnd && start <= sourceEnd) {
+    throw new Error("Retrofit release train must start after source UAT release train end date.");
+  }
+
+  if (!train.sourceReplicaReleaseTrainId) {
+    return;
+  }
+
+  const replicaTrain = allTrains.find((item) => item.id === train.sourceReplicaReleaseTrainId);
+  if (!replicaTrain) {
+    throw new Error("Retrofit source replica release train is missing.");
+  }
+
+  const replicaCategory = envCategoryMap.get(replicaTrain.targetEnvironmentId) || "other";
+  if (replicaCategory !== "replica") {
+    throw new Error("Retrofit sourceReplicaReleaseTrainId must point to a Replica train.");
+  }
+
+  const replicaEnd = parseDate(replicaTrain.endDate);
+  if (replicaEnd && start <= replicaEnd) {
+    throw new Error("Retrofit release train must start after replica release train end date.");
   }
 }
 
@@ -308,7 +510,8 @@ function validateFreezeBlock(train, freezes, category) {
   }
 }
 
-function validateReplicaSource(train, allTrains, envCategoryMap) {
+function validateReplicaSource(train, allTrains, envCategoryMap, category) {
+  if (category !== "replica") return;
   if (!train.sourceReleaseTrainId) return;
 
   const source = allTrains.find((item) => item.id === train.sourceReleaseTrainId);
@@ -336,12 +539,17 @@ function validateReleaseTrainCollection(releaseTrains, { environments, releaseSi
 
     const category = envCategoryMap.get(train.targetEnvironmentId) || "other";
 
+    validateUatReleaseVersionRules(train, category);
+    validateUatReleaseVersionUniqueness(train, releaseTrains, envCategoryMap);
     ensureSignedOffUatScopeReadyForReplica(train, category);
     validateUatDurationRules(train, releaseSizeMap, category);
+    validateRetrofitRules(train, category, releaseTrains, envCategoryMap);
     validateReplicaWeeklyWindow(train, category);
+    validateReplicaSequenceCollision(train, releaseTrains, envCategoryMap);
+    validateProductionAfterReplica(train, releaseTrains, envCategoryMap);
     validateNoUatOverlap(train, releaseTrains, envCategoryMap);
     validateFreezeBlock(train, productionFreezes || [], category);
-    validateReplicaSource(train, releaseTrains, envCategoryMap);
+    validateReplicaSource(train, releaseTrains, envCategoryMap, category);
   });
 }
 
@@ -353,9 +561,15 @@ export async function readConfig() {
   const raw = await fs.readFile(DATA_FILE, "utf8");
   const parsed = JSON.parse(raw);
 
+  const environments = parsed.environments || [];
+  const normalizedTrains = alignUatReleaseVersions(
+    (parsed.releaseTrains || []).map(normalizeReleaseTrain),
+    environments
+  );
+
   return {
-    environments: parsed.environments || [],
-    releaseTrains: (parsed.releaseTrains || []).map(normalizeReleaseTrain),
+    environments,
+    releaseTrains: normalizedTrains,
     productionFreezes: parsed.productionFreezes || [],
     gates: parsed.gates || [],
     releaseSizes: (parsed.releaseSizes || DEFAULT_RELEASE_SIZES).map(normalizeReleaseSize),
@@ -366,7 +580,10 @@ export async function readConfig() {
 export async function writeConfig(config) {
   const normalized = {
     environments: config.environments || [],
-    releaseTrains: (config.releaseTrains || []).map(normalizeReleaseTrain),
+    releaseTrains: alignUatReleaseVersions(
+      (config.releaseTrains || []).map(normalizeReleaseTrain),
+      config.environments || []
+    ),
     productionFreezes: config.productionFreezes || [],
     gates: config.gates || [],
     releaseSizes: (config.releaseSizes || DEFAULT_RELEASE_SIZES).map(normalizeReleaseSize),

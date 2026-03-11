@@ -54,6 +54,28 @@ function getStartWeekForDate(startDate) {
   return Math.floor(days / 7) + 1;
 }
 
+function getWeekOfMonth(dateValue) {
+  return Math.floor((dateValue.getDate() - 1) / 7) + 1;
+}
+
+function buildReleaseVersionFromDate(dateValue) {
+  const yearPart = dateValue.getFullYear() % 100;
+  const monthPart = dateValue.getMonth() + 1;
+  const weekPart = getWeekOfMonth(dateValue);
+  return `${yearPart}.${monthPart}.${weekPart}`;
+}
+
+function parseReleaseVersion(value) {
+  const match = /^([0-9]{2})\.([0-9]{1,2})\.([0-9]{1,2})$/.exec(String(value || "").trim());
+  if (!match) return null;
+
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    week: Number(match[3])
+  };
+}
+
 function overlapsRange(startDate, endDate, rangeStart, rangeEnd) {
   return startDate <= rangeEnd && endDate >= rangeStart;
 }
@@ -97,6 +119,47 @@ function getNextMonday(baseDate) {
   return date;
 }
 
+function hasEnvironmentOverlap(startDate, endDate, trains, environmentId, ignoreTrainIds = []) {
+  return trains.some((train) => {
+    if (!train?.id || ignoreTrainIds.includes(train.id)) return false;
+    if (train.targetEnvironmentId !== environmentId) return false;
+
+    const trainStart = parseDateValue(train.startDate);
+    const trainEnd = parseDateValue(train.endDate);
+    if (!trainStart || !trainEnd) return false;
+
+    return overlapsRange(startDate, endDate, trainStart, trainEnd);
+  });
+}
+
+function findRetrofitWindow(baseDate, trains, targetEnvironmentId, ignoreTrainIds = []) {
+  let startDate = addDays(baseDate, 0);
+
+  for (let i = 0; i < 90; i += 1) {
+    const candidateStart = addDays(startDate, i);
+    const candidateEnd = addDays(candidateStart, 6);
+
+    const collides = hasEnvironmentOverlap(candidateStart, candidateEnd, trains, targetEnvironmentId, ignoreTrainIds);
+
+    if (!collides) {
+      return { startDate: candidateStart, endDate: candidateEnd };
+    }
+  }
+
+  return null;
+}
+
+function countUatEndingOnDate(dateValue, trains, environments) {
+  const dateText = dateValue.toISOString().slice(0, 10);
+
+  return trains.filter((train) => {
+    const env = environments.find((item) => item.id === train.targetEnvironmentId);
+    if (getEnvironmentCategory(env) !== "uat") return false;
+    if (String(train.lifecycleType || "").toLowerCase() === "retrofit") return false;
+    return String(train.endDate || "") === dateText;
+  }).length;
+}
+
 export default function ReleaseTrainsConfigPage() {
   const [releaseTrains, setReleaseTrains] = useState([]);
   const [environments, setEnvironments] = useState([]);
@@ -125,6 +188,52 @@ export default function ReleaseTrainsConfigPage() {
 
   function hasAtLeastOneSize(sizeIds) {
     return Array.isArray(sizeIds) && sizeIds.length > 0;
+  }
+
+  function validateTargetReleaseForUat(targetRelease, startDateText, targetEnvironmentId, currentId = "") {
+    const environment = environmentMap.get(targetEnvironmentId);
+    if (getEnvironmentCategory(environment) !== "uat") {
+      return { valid: true };
+    }
+
+    const startDate = parseDateValue(startDateText);
+    if (!startDate) {
+      return { valid: false, message: "Start date is required to validate release version." };
+    }
+
+    const parsed = parseReleaseVersion(targetRelease);
+    if (!parsed) {
+      return { valid: false, message: "Release version format must be YY.M.W (example: 26.3.1)." };
+    }
+
+    const expected = buildReleaseVersionFromDate(startDate);
+    const normalized = `${parsed.year}.${parsed.month}.${parsed.week}`;
+    if (normalized !== expected) {
+      return {
+        valid: false,
+        message: `Release version should match start date. Expected ${expected} (YY.M.W).`
+      };
+    }
+
+    const duplicateInSameUatEnv = releaseTrains.some((train) => {
+      if (train.id === currentId) return false;
+      if (String(train.targetRelease || "") !== normalized) return false;
+
+      const trainEnv = environmentMap.get(train.targetEnvironmentId);
+      if (getEnvironmentCategory(trainEnv) !== "uat") return false;
+      if (String(train.lifecycleType || "").toLowerCase() === "retrofit") return false;
+
+      return train.targetEnvironmentId === targetEnvironmentId;
+    });
+
+    if (duplicateInSameUatEnv) {
+      return {
+        valid: false,
+        message: `Release version ${normalized} already exists in this UAT environment.`
+      };
+    }
+
+    return { valid: true, normalizedVersion: normalized };
   }
 
   function validateRange(startDateText, endDateText) {
@@ -213,6 +322,11 @@ export default function ReleaseTrainsConfigPage() {
     });
   }, [releaseTrains, filterMonth, filterYear]);
 
+  const versionTip = useMemo(() => {
+    const dateValue = parseDateValue(form.startDate) || new Date();
+    return buildReleaseVersionFromDate(dateValue);
+  }, [form.startDate]);
+
   async function handleSubmit(event) {
     event.preventDefault();
     setError("");
@@ -229,6 +343,21 @@ export default function ReleaseTrainsConfigPage() {
       return;
     }
 
+    const releaseValidation = validateTargetReleaseForUat(
+      form.targetRelease,
+      form.startDate,
+      form.targetEnvironmentId
+    );
+    if (!releaseValidation.valid) {
+      setError(releaseValidation.message);
+      return;
+    }
+
+    if (isFreezeBlockedEnvironment(form.targetEnvironmentId) && hasFreezeOverlap(range.startDate, range.endDate)) {
+      setError("Release trains in Replica or Production cannot be planned during active production freeze periods.");
+      return;
+    }
+
     const durationDays = diffDaysInclusive(range.startDate, range.endDate);
 
     try {
@@ -237,7 +366,7 @@ export default function ReleaseTrainsConfigPage() {
         action: "add",
         item: {
           name: form.name,
-          targetRelease: form.targetRelease,
+          targetRelease: releaseValidation.normalizedVersion || form.targetRelease,
           startDate: form.startDate,
           endDate: form.endDate,
           startWeek: getStartWeekForDate(range.startDate),
@@ -315,6 +444,25 @@ export default function ReleaseTrainsConfigPage() {
       return;
     }
 
+    const releaseValidation = validateTargetReleaseForUat(
+      editForm.targetRelease,
+      editForm.startDate,
+      editForm.targetEnvironmentId,
+      editingId
+    );
+    if (!releaseValidation.valid) {
+      setError(releaseValidation.message);
+      return;
+    }
+
+    if (
+      isFreezeBlockedEnvironment(editForm.targetEnvironmentId) &&
+      hasFreezeOverlap(range.startDate, range.endDate)
+    ) {
+      setError("Release trains in Replica or Production cannot be planned during active production freeze periods.");
+      return;
+    }
+
     const durationDays = diffDaysInclusive(range.startDate, range.endDate);
 
     try {
@@ -324,7 +472,7 @@ export default function ReleaseTrainsConfigPage() {
         id: editingId,
         item: {
           name: editForm.name,
-          targetRelease: editForm.targetRelease,
+          targetRelease: releaseValidation.normalizedVersion || editForm.targetRelease,
           startDate: editForm.startDate,
           endDate: editForm.endDate,
           startWeek: getStartWeekForDate(range.startDate),
@@ -391,10 +539,29 @@ export default function ReleaseTrainsConfigPage() {
     });
   }
 
+  function isFreezeBlockedEnvironment(environmentId) {
+    const environment = environmentMap.get(environmentId);
+    const category = getEnvironmentCategory(environment);
+    return category === "replica" || category === "production";
+  }
+
   function hasReplicaOverlap(startDate, endDate, trains) {
     return trains.some((train) => {
       const env = environmentMap.get(train.targetEnvironmentId);
       if (getEnvironmentCategory(env) !== "replica") return false;
+
+      const trainStart = parseDateValue(train.startDate);
+      const trainEnd = parseDateValue(train.endDate);
+      if (!trainStart || !trainEnd) return false;
+
+      return overlapsRange(startDate, endDate, trainStart, trainEnd);
+    });
+  }
+
+  function hasProductionOverlap(startDate, endDate, trains) {
+    return trains.some((train) => {
+      const env = environmentMap.get(train.targetEnvironmentId);
+      if (getEnvironmentCategory(env) !== "production") return false;
 
       const trainStart = parseDateValue(train.startDate);
       const trainEnd = parseDateValue(train.endDate);
@@ -411,8 +578,10 @@ export default function ReleaseTrainsConfigPage() {
       const endDate = addDays(startDate, 3);
       const blockedByFreeze = hasFreezeOverlap(startDate, endDate);
       const blockedByReplicaTrain = hasReplicaOverlap(startDate, endDate, trains);
+      const uatEndCollisionCount = countUatEndingOnDate(startDate, trains, environments);
+      const blockedBySequenceCollision = uatEndCollisionCount > 1;
 
-      if (!blockedByFreeze && !blockedByReplicaTrain) {
+      if (!blockedByFreeze && !blockedByReplicaTrain && !blockedBySequenceCollision) {
         return { startDate, endDate };
       }
 
@@ -420,6 +589,57 @@ export default function ReleaseTrainsConfigPage() {
     }
 
     return null;
+  }
+
+  function findProductionWindow(baseDate, trains) {
+    let startDate = addDays(baseDate, 0);
+
+    for (let i = 0; i < 120; i += 1) {
+      const candidateDate = addDays(startDate, i);
+      const blockedByFreeze = hasFreezeOverlap(candidateDate, candidateDate);
+      const blockedByProductionTrain = hasProductionOverlap(candidateDate, candidateDate, trains);
+
+      if (!blockedByFreeze && !blockedByProductionTrain) {
+        return { startDate: candidateDate, endDate: candidateDate };
+      }
+    }
+
+    return null;
+  }
+
+  function findOtherUatRetrofitPlacement(baseDate, trains, sourceTrain) {
+    const sourceEnvironmentId = sourceTrain.targetEnvironmentId;
+    const candidateUatEnvironments = environments.filter((env) => {
+      return getEnvironmentCategory(env) === "uat" && env.id !== sourceEnvironmentId;
+    });
+
+    let bestPlacement = null;
+
+    candidateUatEnvironments.forEach((environment) => {
+      const window = findRetrofitWindow(baseDate, trains, environment.id, [sourceTrain.id]);
+      if (!window) return;
+
+      if (!bestPlacement || window.startDate < bestPlacement.window.startDate) {
+        bestPlacement = { environment, window };
+      }
+    });
+
+    return bestPlacement;
+  }
+
+  function getRelatedUatSourcesForRetrofit(sourceTrain, trains) {
+    return trains
+      .filter((train) => {
+        const env = environmentMap.get(train.targetEnvironmentId);
+        const isUat = getEnvironmentCategory(env) === "uat";
+        const isRetrofit = String(train.lifecycleType || "").toLowerCase() === "retrofit";
+        return isUat && !isRetrofit && String(train.targetRelease || "") === String(sourceTrain.targetRelease || "");
+      })
+      .sort((a, b) => {
+        const aStart = parseDateValue(a.startDate)?.getTime() || 0;
+        const bStart = parseDateValue(b.startDate)?.getTime() || 0;
+        return aStart - bStart;
+      });
   }
 
   async function handleCreateReplica(train) {
@@ -437,6 +657,11 @@ export default function ReleaseTrainsConfigPage() {
       return;
     }
 
+    if (train.replicaReleaseTrainId) {
+      setError("Replica release train already exists for this source release train.");
+      return;
+    }
+
     if (hasUnreadyScope(train)) {
       setError("All scope records must be ready before moving a UAT release train to replica.");
       return;
@@ -445,6 +670,12 @@ export default function ReleaseTrainsConfigPage() {
     const replicaEnvironment = environments.find((env) => getEnvironmentCategory(env) === "replica");
     if (!replicaEnvironment) {
       setError("Replica environment is not configured.");
+      return;
+    }
+
+    const productionEnvironment = environments.find((env) => getEnvironmentCategory(env) === "production");
+    if (!productionEnvironment) {
+      setError("Production environment is not configured.");
       return;
     }
 
@@ -463,7 +694,14 @@ export default function ReleaseTrainsConfigPage() {
         throw new Error("Unable to find an available Monday-Thursday replica slot in the next 12 months.");
       }
 
+      const productionBaseDate = addDays(window.endDate, 1);
+      const productionWindow = findProductionWindow(productionBaseDate, latest.releaseTrains || []);
+      if (!productionWindow) {
+        throw new Error("Unable to find an available production window after replica completion.");
+      }
+
       const replicaTrainId = `rep-${Date.now()}`;
+      const productionTrainId = `prd-${Date.now()}`;
       const newReplicaTrain = {
         id: replicaTrainId,
         name: `${latestSource.name} - Replica`,
@@ -477,18 +715,94 @@ export default function ReleaseTrainsConfigPage() {
         sourceReleaseTrainId: latestSource.id
       };
 
+      const newProductionTrain = {
+        id: productionTrainId,
+        name: `${latestSource.name} - Production`,
+        targetRelease: latestSource.targetRelease,
+        startDate: `${productionWindow.startDate.toISOString().slice(0, 10)}`,
+        endDate: `${productionWindow.endDate.toISOString().slice(0, 10)}`,
+        targetEnvironmentId: productionEnvironment.id,
+        status: "Planning",
+        releaseSizeIds: latestSource.releaseSizeIds || [],
+        scopeRecords: latestSource.scopeRecords || [],
+        sourceReplicaReleaseTrainId: replicaTrainId,
+        sourceReleaseTrainId: latestSource.id
+      };
+
+      const workingTrains = [...(latest.releaseTrains || []), newReplicaTrain, newProductionTrain];
+      const relatedUatSources = getRelatedUatSourcesForRetrofit(latestSource, latest.releaseTrains || []);
+      const retrofitAssignments = [];
+      const newRetrofitTrains = [];
+
+      relatedUatSources.forEach((sourceTrain, index) => {
+        if (sourceTrain.retrofitReleaseTrainId) {
+          return;
+        }
+
+        const sourceEndDate = parseDateValue(sourceTrain.endDate) || new Date();
+        let retrofitBaseDate = addDays(sourceEndDate, 1);
+
+        if (sourceTrain.id === latestSource.id) {
+          const afterReplica = addDays(window.endDate, 1);
+          if (retrofitBaseDate < afterReplica) {
+            retrofitBaseDate = afterReplica;
+          }
+        }
+
+        const retrofitPlacement = findOtherUatRetrofitPlacement(retrofitBaseDate, workingTrains, sourceTrain);
+        if (!retrofitPlacement) {
+          throw new Error(`Unable to find a 1-week retrofit slot in another UAT environment for ${sourceTrain.name}.`);
+        }
+
+        const retrofitTrainId = `ret-${Date.now()}-${index + 1}`;
+        const retrofitTrain = {
+          id: retrofitTrainId,
+          name: `${sourceTrain.name} - Retrofit (${retrofitPlacement.environment.name})`,
+          targetRelease: `retrofit-${sourceTrain.targetRelease}`,
+          startDate: `${retrofitPlacement.window.startDate.toISOString().slice(0, 10)}`,
+          endDate: `${retrofitPlacement.window.endDate.toISOString().slice(0, 10)}`,
+          targetEnvironmentId: retrofitPlacement.environment.id,
+          status: "Planning",
+          releaseSizeIds: sourceTrain.releaseSizeIds || [],
+          scopeRecords: sourceTrain.scopeRecords || [],
+          lifecycleType: "retrofit",
+          sourceReleaseTrainId: sourceTrain.id,
+          retrofitSourceReleaseTrainId: sourceTrain.id,
+          sourceReplicaReleaseTrainId: sourceTrain.id === latestSource.id ? replicaTrainId : ""
+        };
+
+        workingTrains.push(retrofitTrain);
+        newRetrofitTrains.push(retrofitTrain);
+        retrofitAssignments.push({ sourceId: sourceTrain.id, retrofitId: retrofitTrainId });
+      });
+
       const nextConfig = {
         ...latest,
         releaseTrains: [
           ...(latest.releaseTrains || []).map((item) =>
-            item.id === latestSource.id ? { ...item, replicaReleaseTrainId: replicaTrainId } : item
+            retrofitAssignments.some((assignment) => assignment.sourceId === item.id) || item.id === latestSource.id
+              ? {
+                  ...item,
+                  replicaReleaseTrainId:
+                    item.id === latestSource.id ? replicaTrainId : item.replicaReleaseTrainId,
+                  productionReleaseTrainId:
+                    item.id === latestSource.id ? productionTrainId : item.productionReleaseTrainId,
+                  retrofitReleaseTrainId:
+                    retrofitAssignments.find((assignment) => assignment.sourceId === item.id)?.retrofitId ||
+                    item.retrofitReleaseTrainId
+                }
+              : item
           ),
-          newReplicaTrain
+          newReplicaTrain,
+          newProductionTrain,
+          ...newRetrofitTrains
         ]
       };
 
       await mutateConfig({ mode: "replace", config: nextConfig });
-      setMessage("Replica release train created successfully (Monday to Thursday)." );
+      setMessage(
+        `Replica and Production created; ${newRetrofitTrains.length} retrofit release train(s) planned for UAT1/UAT2/UAT3.`
+      );
       await load();
     } catch (err) {
       setError(err.message);
@@ -516,10 +830,14 @@ export default function ReleaseTrainsConfigPage() {
             Target Release
             <input
               required
-              placeholder="26.3.4"
+              placeholder="26.3.1"
               value={form.targetRelease}
               onChange={(event) => setForm((prev) => ({ ...prev, targetRelease: event.target.value }))}
             />
+            <small className="hint-text">
+              Tip: Use <strong>YY.M.W</strong> format. Example <strong>{versionTip}</strong> means year 26, month 3,
+              week 1 of that month.
+            </small>
           </label>
 
           <label>
@@ -649,7 +967,11 @@ export default function ReleaseTrainsConfigPage() {
                 const sizeNames = getSizeNames(train.releaseSizeIds);
                 const canAdvance = Boolean(nextStatus(train.status));
                 const isUat = getEnvironmentCategory(environment) === "uat";
-                const canCreateReplica = isUat && train.status === "Signed Off";
+                const canCreateReplica =
+                  isUat &&
+                  train.status === "Signed Off" &&
+                  !train.replicaReleaseTrainId &&
+                  !train.productionReleaseTrainId;
 
                 return (
                   <tr key={train.id}>
@@ -782,7 +1104,7 @@ export default function ReleaseTrainsConfigPage() {
 
                       {!isEditing && canCreateReplica ? (
                         <button className="primary-btn" onClick={() => handleCreateReplica(train)}>
-                          Create Replica
+                          Move to Replica + Production
                         </button>
                       ) : null}
 
