@@ -1,0 +1,25 @@
+{
+  "name": "Release Governance Studio",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-20-bullseye",
+  "postCreateCommand": "npm --prefix release-governance-studio install",
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      },
+      "extensions": [
+        "dbaeumer.vscode-eslint"
+      ]
+    }
+  },
+  "forwardPorts": [
+    4200
+  ],
+  "portsAttributes": {
+    "4200": {
+      "label": "Release Governance Studio",
+      "onAutoForward": "notify"
+    }
+  }
+}
