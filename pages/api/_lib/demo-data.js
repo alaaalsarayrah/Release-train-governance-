@@ -11,6 +11,7 @@ const BACKLOG_PATH = path.join(process.cwd(), 'data', 'agentic', 'planning-backl
 const DEFAULT_PROFILE = 'default'
 const THESIS_PROFILE = 'thesis-demo'
 const DEMO_SESSION_ID = 'PLAN-THESIS-DEMO-001'
+const THESIS_COMMITTED_SCOPE_IDS = ['US-601', 'US-602', 'US-603', 'US-604', 'US-606', 'US-612', 'US-617', 'US-619']
 
 const DEMO_TS = {
   base: '2026-03-10T08:00:00.000Z',
@@ -128,7 +129,11 @@ async function clearTrackedTables(db) {
 
 function selectThesisBacklog(backlogItems, sprintName) {
   const bySprint = backlogItems.filter((item) => item.targetSprint === sprintName)
-  if (bySprint.length >= 10) return bySprint.slice(0, 12)
+  const committed = THESIS_COMMITTED_SCOPE_IDS
+    .map((id) => bySprint.find((item) => item.id === id))
+    .filter(Boolean)
+  if (committed.length) return committed
+  if (bySprint.length >= 10) return bySprint.slice(0, 8)
   return backlogItems.slice(0, 12)
 }
 
@@ -164,9 +169,9 @@ function buildAgentOutputs(planningContext) {
         rationale: 'Highest business value stories are selected while preserving a buffer for security and migration enablers.',
         confidence: 0.91,
         recommendations: [
-          'Commit US-601, US-604, US-609, US-612 as core user-facing value stories.',
-          'Run US-602 and US-617 early to unblock dependent payment and compliance work.',
-          'Defer lower-value telemetry enhancements if capacity falls below 50 points.'
+          'Commit US-601, US-604, and US-612 as core user-facing value stories.',
+          'Run US-602, US-603, and US-617 early to protect the document, payment, and security integration chain.',
+          'Keep US-606 and US-619 in scope only while the sprint remains within the 52-point capacity plan.'
         ],
         follow_up_questions: [
           'Can security sign-off for malware scanning be completed before sprint day 6?',
@@ -184,15 +189,15 @@ function buildAgentOutputs(planningContext) {
     },
     {
       agentKey: 'estimation_advisor',
-      summary: 'Estimated selected backlog at 56 points AI baseline with 53 points final human commitment.',
+      summary: 'Estimated selected backlog at 53 points AI baseline with 52 points final human commitment.',
       confidence: 0.87,
       output: {
-        summary: 'Capacity risk is manageable after reducing two integration-heavy stories by scope split.',
-        rationale: 'Historical throughput for this team averages 50-55 points when dependencies are tracked daily.',
+        summary: 'Capacity risk is manageable with a one-point estimate reduction on the webhook story and a tightly scoped committed set.',
+        rationale: 'Historical throughput for this team averages roughly 50-55 points when integration dependencies are reviewed daily.',
         confidence: 0.87,
         recommendations: [
-          'Apply a scope split to US-602 and US-611 to reduce sprint overcommit risk.',
-          'Track integration blockers every stand-up for US-603 and US-617.'
+          'Protect capacity by holding the committed set at 52 points unless lower-priority items are swapped out.',
+          'Track integration blockers every stand-up for US-602, US-603, and US-617.'
         ],
         artifacts: {
           estimation_table: items.map((row) => ({
@@ -206,36 +211,35 @@ function buildAgentOutputs(planningContext) {
     },
     {
       agentKey: 'dependency_analyst',
-      summary: 'Identified six critical dependencies including document API, payment callback, and fraud adapter sequencing.',
+      summary: 'Identified five critical dependencies centered on document API readiness, payment flow sequencing, and governance telemetry.',
       confidence: 0.9,
       output: {
-        summary: 'Dependency chain indicates integration team readiness drives sprint completion confidence.',
-        rationale: 'US-603, US-607, and US-622 are blocked by stable outputs from US-602 and US-617.',
+        summary: 'Dependency chain indicates document and security enablers drive sprint completion confidence.',
+        rationale: 'US-603 and US-619 depend on stable outputs from US-602, while US-617 protects downstream attachment handling risk.',
         confidence: 0.9,
         recommendations: [
           'Run an integration readiness checkpoint by sprint day 3.',
           'Escalate unresolved external API contracts to ART sync immediately.'
         ],
         risks: [
-          'Delays in document vault checksum endpoint can cascade to dispute evidence generation.',
-          'Fraud adapter false positives may impact payment retry conversion.'
+          'Delays in document vault checksum endpoint can cascade into payment and telemetry readiness.',
+          'Malware scanning latency can slow attachment persistence if callback handling is not asynchronous.'
         ],
         artifacts: {
           dependency_graph: {
             nodes: [
               { id: 'US-602', label: 'Document vault API' },
               { id: 'US-603', label: 'Payment webhook' },
-              { id: 'US-607', label: 'Fraud adapter' },
               { id: 'US-617', label: 'Malware scan pipeline' },
-              { id: 'US-622', label: 'Dispute evidence package' },
-              { id: 'US-609', label: 'SLA warning dashboard' }
+              { id: 'US-612', label: 'Consent journey' },
+              { id: 'US-619', label: 'PI telemetry' }
             ],
             edges: [
               { source: 'US-602', target: 'US-603', severity: 'High' },
-              { source: 'US-602', target: 'US-622', severity: 'High' },
-              { source: 'US-617', target: 'US-622', severity: 'Medium' },
-              { source: 'US-607', target: 'US-603', severity: 'High' },
-              { source: 'US-603', target: 'US-609', severity: 'Medium' }
+              { source: 'US-602', target: 'US-617', severity: 'High' },
+              { source: 'US-617', target: 'US-603', severity: 'Medium' },
+              { source: 'US-603', target: 'US-619', severity: 'Medium' },
+              { source: 'US-612', target: 'US-619', severity: 'Medium' }
             ]
           }
         }
@@ -298,38 +302,38 @@ function buildDependencyRecords() {
     },
     {
       source_item: 'US-602',
-      target_item: 'US-622',
-      dependency_type: 'Data Dependency',
+      target_item: 'US-617',
+      dependency_type: 'Security Integration',
       severity: 'High',
-      description: 'Dispute package generator requires signed attachment metadata from document vault.',
-      mitigation: 'Publish signed metadata endpoint and validate with dispute service in staging.',
+      description: 'Malware scan pipeline requires document vault metadata and signed attachment handoff.',
+      mitigation: 'Validate metadata handoff and asynchronous scan callbacks in staging by sprint day 3.',
       threatens_sprint: 1
     },
     {
       source_item: 'US-617',
-      target_item: 'US-622',
+      target_item: 'US-603',
       dependency_type: 'Security Gate',
       severity: 'Medium',
-      description: 'Dispute bundle release requires malware scan verdict integration.',
+      description: 'Attachment security verdicts must not delay payment-related attachment processing flows.',
       mitigation: 'Implement asynchronous scan completion callback and retry policy.',
       threatens_sprint: 0
     },
     {
-      source_item: 'US-607',
-      target_item: 'US-603',
-      dependency_type: 'Service Coupling',
-      severity: 'High',
-      description: 'Fraud signal adapter must evaluate retry requests before payment webhook acceptance.',
-      mitigation: 'Deploy adapter behind feature flag and monitor false positives.',
-      threatens_sprint: 1
-    },
-    {
       source_item: 'US-603',
-      target_item: 'US-609',
+      target_item: 'US-619',
       dependency_type: 'Operational Metrics',
       severity: 'Medium',
-      description: 'SLA warning dashboard depends on reliable status events from payment processing.',
+      description: 'PI telemetry depends on reliable status events from payment processing.',
       mitigation: 'Add fallback event replay job for missed webhook events.',
+      threatens_sprint: 0
+    },
+    {
+      source_item: 'US-612',
+      target_item: 'US-619',
+      dependency_type: 'Governance Reporting',
+      severity: 'Medium',
+      description: 'PI telemetry should incorporate consent and revocation outcomes for governance evidence.',
+      mitigation: 'Add consent-event feed to the telemetry aggregation contract.',
       threatens_sprint: 0
     }
   ]
@@ -534,6 +538,75 @@ function buildScenarioInteractions() {
       actor: 'Delivery Lead',
       notes: 'Escalated vendor callback risk to weekly ART forum.',
       created_at: '2026-03-11T11:18:00.000Z'
+    }
+  ]
+}
+
+function buildAuditTimeline(actor) {
+  return [
+    {
+      br_id: DEMO_SESSION_ID,
+      stage: 'Planning Session',
+      actor,
+      action: 'Planning session created',
+      details: { sessionId: DEMO_SESSION_ID, scope: 'Thesis demo sprint planning' },
+      created_at: DEMO_TS.base
+    },
+    {
+      br_id: DEMO_SESSION_ID,
+      stage: 'Agent Review',
+      actor,
+      action: 'Planning agents completed',
+      details: { outputsGenerated: 5, selectedAgents: PLANNING_AGENT_KEYS },
+      created_at: DEMO_TS.outputs
+    },
+    {
+      br_id: DEMO_SESSION_ID,
+      stage: 'Human Governance',
+      actor,
+      action: 'Decision recorded: accept',
+      details: { agent: 'product_owner_assistant', rationale: 'Prioritization aligns with PI objective and stakeholder expectations.' },
+      created_at: DEMO_TS.decisions
+    },
+    {
+      br_id: DEMO_SESSION_ID,
+      stage: 'Human Governance',
+      actor,
+      action: 'Decision recorded: modify',
+      details: { agent: 'estimation_advisor', rationale: 'Adjusted one estimate to keep final commitment at 52 points.' },
+      created_at: DEMO_TS.decisions
+    },
+    {
+      br_id: DEMO_SESSION_ID,
+      stage: 'Human Governance',
+      actor,
+      action: 'Decision recorded: accept',
+      details: { agent: 'dependency_analyst', rationale: 'Dependencies and mitigations are actionable for sprint ceremonies.' },
+      created_at: DEMO_TS.decisions
+    },
+    {
+      br_id: DEMO_SESSION_ID,
+      stage: 'Human Governance',
+      actor,
+      action: 'Decision recorded: accept',
+      details: { agent: 'architect_advisor', rationale: 'Recommendations match current architecture runway strategy.' },
+      created_at: DEMO_TS.decisions
+    },
+    {
+      br_id: DEMO_SESSION_ID,
+      stage: 'Human Governance',
+      actor,
+      action: 'Decision recorded: accept',
+      details: { agent: 'risk_analyst', rationale: 'Risk ownership and mitigation cadence approved by delivery leads.' },
+      created_at: DEMO_TS.decisions
+    },
+    {
+      br_id: DEMO_SESSION_ID,
+      stage: 'Sprint Summary',
+      actor,
+      action: 'Session finalized',
+      details: { sessionId: DEMO_SESSION_ID, finalizedAt: DEMO_TS.finalize },
+      created_at: DEMO_TS.finalize
     }
   ]
 }
@@ -811,6 +884,7 @@ async function insertPlanningSessionArtifacts(db, planningContext, actor) {
   const dependencies = buildDependencyRecords()
   const risks = buildRiskRecords()
   const architectureNote = buildArchitectureNote()
+  const auditTimeline = buildAuditTimeline(actor)
 
   await dbRun(
     db,
@@ -1120,13 +1194,30 @@ async function insertPlanningSessionArtifacts(db, planningContext, actor) {
     ['finalized', JSON.stringify(finalSummary), actor, DEMO_TS.finalize, DEMO_SESSION_ID]
   )
 
+  for (const row of auditTimeline) {
+    await dbRun(
+      db,
+      `INSERT INTO audit_logs (br_id, stage, actor, action, details, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        row.br_id,
+        row.stage,
+        row.actor,
+        row.action,
+        JSON.stringify(row.details || null),
+        row.created_at
+      ]
+    )
+  }
+
   return {
     sessionId: DEMO_SESSION_ID,
     outputs: outputCount,
     decisions: decisions.length,
     dependencies: dependencies.length,
     risks: risks.length,
-    estimates: estimateRows.length
+    estimates: estimateRows.length,
+    auditLogs: auditTimeline.length
   }
 }
 

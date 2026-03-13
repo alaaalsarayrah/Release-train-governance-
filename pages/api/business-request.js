@@ -487,7 +487,7 @@ async function runAutoWorkflow({ req, brId, actor }) {
     id: brId,
     action: 'submit-brd',
     brdSummary: `Auto-submitted BRD for ${brId}`,
-    brdDetails: 'Generated and submitted by automated SDLC workflow.',
+    brdDetails: 'Generated and submitted by supporting demand-and-BRD workflow automation.',
     brdUrl,
     triggeredBy
   })

@@ -21,8 +21,8 @@ const fallbackPersonas = [
     personaTitle: 'Brain Orchestrator',
     model: 'qwen3:4b',
     active: true,
-    description: 'Controls the end-to-end SDLC flow, validates outputs from other personas, and decides approvals/rejections.',
-    systemInstruction: 'You are Agentic AI_Orcastration (Brain). Manage SDLC transitions, enforce governance, create/fix prompts for VS Code and Copilot workflows when needed, and ensure each stage has traceable outcomes.'
+    description: 'Coordinates supporting demand-to-planning workflow stages, validates outputs from other personas, and decides approvals/rejections.',
+    systemInstruction: 'You are Agentic AI_Orcastration (Brain). Manage supporting demand and BRD workflow transitions, enforce governance, create/fix prompts for VS Code and Copilot workflows when needed, and ensure each stage has traceable outcomes.'
   },
   {
     key: 'demand',

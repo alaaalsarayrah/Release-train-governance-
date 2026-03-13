@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
+import { getThesisDemoHydrationState, loadThesisDemoData, resetThesisDemoData } from '../lib/thesis/demo-state'
 
 const EXPORT_DEFINITIONS = [
   { type: 'sprint-summary', title: 'Sprint Summary', desc: 'Executive sprint narrative and delivery snapshot.' },
@@ -30,6 +31,7 @@ export default function PlanningExportCenterPage() {
   const [previewData, setPreviewData] = useState(null)
   const [busy, setBusy] = useState(false)
   const [demoBusy, setDemoBusy] = useState('')
+  const [hydrationState, setHydrationState] = useState(null)
   const [message, setMessage] = useState('')
 
   useEffect(() => {
@@ -37,8 +39,7 @@ export default function PlanningExportCenterPage() {
 
     const fromQuery = String(router.query.sessionId || '').trim()
     if (fromQuery) {
-      setSessionId(fromQuery)
-      void loadSession(fromQuery)
+      void loadSession(fromQuery, { fallbackToLatest: true })
       return
     }
 
@@ -50,7 +51,7 @@ export default function PlanningExportCenterPage() {
     void loadPreview(sessionId, previewType)
   }, [sessionId, previewType])
 
-  async function loadSession(id) {
+  async function loadSession(id, options = {}) {
     if (!id) return
     setBusy(true)
     setMessage('')
@@ -62,7 +63,14 @@ export default function PlanningExportCenterPage() {
       setSession(json.session || null)
       setMessage('Session loaded')
     } catch (err) {
+      setSessionId('')
       setSession(null)
+      if (options.fallbackToLatest) {
+        setMessage(`Requested session was unavailable. Falling back to the latest thesis demo session.`)
+        await loadLatestSession()
+        return
+      }
+
       setMessage(`Session load failed: ${String(err.message || err)}`)
     } finally {
       setBusy(false)
@@ -73,28 +81,23 @@ export default function PlanningExportCenterPage() {
     setBusy(true)
     setMessage('')
     try {
-      const res = await fetch('/api/planning/session?limit=25')
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.message || 'Failed to load planning sessions')
+      const hydration = await getThesisDemoHydrationState({ autoRecover: true })
+      setHydrationState(hydration)
 
-      const sessions = Array.isArray(json.sessions) ? json.sessions : []
-      if (!sessions.length) {
+      if (!hydration.preferredSession?.id) {
         setSession(null)
         setSessionId('')
-        setMessage('No planning sessions found. Load Thesis Demo Data from Thesis Demo to populate evidence exports.')
+        setMessage(hydration.recoveryReason || 'No planning sessions found. Load Thesis Demo Data to populate evidence exports.')
         return
       }
 
-      const preferred = sessions.find((row) => String(row.id).startsWith('PLAN-THESIS-DEMO'))
-        || sessions.find((row) => String(row.status || '').toLowerCase() === 'finalized')
-        || sessions[0]
+      await loadSession(hydration.preferredSession.id)
 
-      if (!preferred?.id) {
-        setMessage('No valid planning session identifier found.')
-        return
+      if (hydration.recovered) {
+        setMessage('Thesis demo data was recovered automatically and the latest evidence export session is loaded.')
+      } else if (hydration.recoveryError) {
+        setMessage(`Automatic recovery did not complete: ${hydration.recoveryError}`)
       }
-
-      await loadSession(preferred.id)
     } catch (err) {
       setSession(null)
       setSessionId('')
@@ -113,13 +116,11 @@ export default function PlanningExportCenterPage() {
     setDemoBusy(action)
     setMessage('')
     try {
-      const res = await fetch('/api/demo-data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, profile: 'thesis-demo' })
-      })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.message || 'Demo data action failed')
+      if (action === 'load') {
+        await loadThesisDemoData()
+      } else {
+        await resetThesisDemoData()
+      }
 
       if (action === 'load') {
         setMessage('Thesis demo data loaded. Latest planning session is now available for export previews.')
@@ -181,7 +182,9 @@ export default function PlanningExportCenterPage() {
           <Link href="/thesis-demo">Thesis Demo</Link>
           <Link href="/conceptual-framework">Conceptual Framework</Link>
           <Link href="/sprint-planning-workspace">Sprint Planning Workspace</Link>
-          <Link href="/evaluation">Evaluation</Link>
+          <Link href="/evaluation">Evaluation Evidence</Link>
+          <Link href="/thesis-readiness-checklist">Supervisor Readiness Checklist</Link>
+          <Link href="/chapter-alignment-notes">Chapter 4/5 Alignment Notes</Link>
           <Link href="/agentic-workflow">Supporting Workflow</Link>
           <Link href="/dashboard">Supporting Dashboard</Link>
           <Link href="/">Home</Link>
@@ -211,6 +214,9 @@ export default function PlanningExportCenterPage() {
         <button className="ghost" onClick={() => void runDemoAction('reset')} disabled={Boolean(demoBusy) || busy}>
           {demoBusy === 'reset' ? 'Resetting...' : 'Reset Demo Data'}
         </button>
+        <div className="metaNote">
+          Active profile: {hydrationState?.status?.activeProfile?.profile || 'unknown'} | Preferred session: {hydrationState?.preferredSession?.id || 'none'}
+        </div>
       </section>
 
       {summary ? (
@@ -359,6 +365,13 @@ export default function PlanningExportCenterPage() {
           flex-wrap: wrap;
           gap: 10px;
           align-items: flex-end;
+        }
+
+        .metaNote {
+          font-size: 12px;
+          color: #4d647d;
+          font-weight: 700;
+          padding-bottom: 6px;
         }
 
         .controls label {

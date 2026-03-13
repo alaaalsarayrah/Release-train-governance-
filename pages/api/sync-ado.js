@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import * as azdev from 'azure-devops-node-api'
 import { resolveStrictTypeMapping, toTypeSet } from '../../lib/ado/work-item-types'
+import { sendAdoError } from './_lib/ado-error'
 import {
   appendAssignedToPatch,
   isAssigneeError,
@@ -25,8 +26,17 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { requirements } = req.body
+    const { requirements } = req.body || {}
     const config = loadConfig()
+
+    if (!Array.isArray(requirements) || requirements.length === 0) {
+      return res.status(400).json({
+        error: 'Invalid request body',
+        errorCode: 'INVALID_INPUT',
+        retryable: false,
+        message: 'Provide a non-empty requirements array to sync to ADO.'
+      })
+    }
 
     if (!config.organization || !config.project || !config.pat) {
       return res.status(400).json({ message: 'ADO not configured. Set config first.' })
@@ -46,17 +56,32 @@ export default async function handler(req, res) {
     const results = []
     for (const requirement of requirements) {
       try {
+        const title = String(requirement?.title || '').trim()
+        const description = String(requirement?.description || '').trim()
+        const acceptanceCriteria = Array.isArray(requirement?.acceptanceCriteria)
+          ? requirement.acceptanceCriteria
+          : []
+
+        if (!title || !description) {
+          results.push({
+            title: title || 'Untitled requirement',
+            status: 'Failed',
+            error: 'Requirement is missing title or description'
+          })
+          continue
+        }
+
         // Create work item with process-aware type fallback.
         const doc = [
-          { op: 'add', path: '/fields/System.Title', value: requirement.title },
-          { op: 'add', path: '/fields/System.Description', value: requirement.description }
+          { op: 'add', path: '/fields/System.Title', value: title },
+          { op: 'add', path: '/fields/System.Description', value: description }
         ]
 
-        if (requirement.acceptanceCriteria.length > 0) {
+        if (acceptanceCriteria.length > 0) {
           doc.push({
             op: 'add',
             path: '/fields/Microsoft.VSTS.Common.AcceptanceCriteria',
-            value: requirement.acceptanceCriteria.join('\n')
+            value: acceptanceCriteria.join('\n')
           })
         }
 
@@ -82,14 +107,14 @@ export default async function handler(req, res) {
         }
 
         results.push({
-          title: requirement.title,
+          title,
           workItemId: wi.id,
           url: wi.url,
           status: 'Created'
         })
       } catch (err) {
         results.push({
-          title: requirement.title,
+          title: requirement?.title || 'Untitled requirement',
           status: 'Failed',
           error: String(err)
         })
@@ -106,6 +131,6 @@ export default async function handler(req, res) {
     })
   } catch (err) {
     console.error('ADO sync error', err)
-    res.status(500).json({ message: 'Sync to ADO failed', error: String(err) })
+    return sendAdoError(res, err, 'Sync to ADO failed')
   }
 }

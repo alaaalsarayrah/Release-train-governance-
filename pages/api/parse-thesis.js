@@ -219,9 +219,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       status: 'ok',
-      message: candidate.source === 'thesis-upload'
-        ? 'Thesis analysis completed from thesis-scoped upload.'
-        : 'Analysis completed using thesis-name fallback. Upload from Thesis Upload page for explicit scoping.',
+      message: 'Thesis analysis completed from thesis-scoped upload.',
       source: candidate.source,
       fileName: candidate.fileName,
       fileType: candidate.fileType,

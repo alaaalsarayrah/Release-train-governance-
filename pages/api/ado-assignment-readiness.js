@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import { sendAdoError } from './_lib/ado-error'
 
 const adoConfigPath = path.join(process.cwd(), 'public', '.ado-config.json')
 const teamSetupPath = path.join(process.cwd(), 'data', 'team-setup.json')
@@ -58,7 +59,9 @@ async function fetchEntitledUsers({ org, pat }) {
   }
 
   if (!res.ok) {
-    throw new Error(json?.message || json?.raw || `Failed to load ADO entitled users (${res.status})`)
+    const err = new Error(json?.message || json?.raw || `Failed to load ADO entitled users (${res.status})`)
+    err.status = res.status
+    throw err
   }
 
   return (json?.items || []).map((item) => ({
@@ -208,6 +211,6 @@ export default async function handler(req, res) {
       suggestedEmailUpdates
     })
   } catch (err) {
-    return res.status(500).json({ message: 'Failed to compute assignment readiness', error: String(err.message || err) })
+    return sendAdoError(res, err, 'Failed to compute assignment readiness')
   }
 }

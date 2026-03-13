@@ -227,6 +227,8 @@ export default function ProjectDocumentationPage() {
           <Link href="/conceptual-framework">Conceptual Framework</Link>
           <Link href="/sprint-planning-workspace">Sprint Planning Workspace</Link>
           <Link href="/evaluation">Evaluation</Link>
+          <Link href="/thesis-readiness-checklist">Supervisor Checklist</Link>
+          <Link href="/chapter-alignment-notes">Chapter Notes</Link>
           <Link href="/agentic-workflow">Supporting Workflow</Link>
           <Link href="/dashboard">Supporting Dashboard</Link>
           <Link href="/administrator">Administrator</Link>

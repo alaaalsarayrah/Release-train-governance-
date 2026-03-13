@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import * as azdev from 'azure-devops-node-api'
 import { resolveStrictTypeMapping, toTypeSet } from '../../lib/ado/work-item-types'
+import { sendAdoError } from './_lib/ado-error'
 
 const configPath = path.join(process.cwd(), 'public', '.ado-config.json')
 
@@ -38,6 +39,6 @@ export default async function handler(req, res) {
       generatedAt: new Date().toISOString()
     })
   } catch (err) {
-    return res.status(500).json({ message: 'Failed to inspect ADO work item types', error: String(err.message || err) })
+    return sendAdoError(res, err, 'Failed to inspect ADO work item types')
   }
 }

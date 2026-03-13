@@ -6,40 +6,52 @@ const ScrumAgent = dynamic(() => import('../components/ScrumAgent'), { ssr: fals
 
 const demoSteps = [
   {
-    title: '1) Sprint and Team Setup',
+    title: '1) Thesis Demo Entry and Data Readiness',
+    description: 'Start by loading deterministic thesis demo data so all evidence panels are populated.',
+    href: '/thesis-demo',
+    cta: 'Confirm Demo Readiness'
+  },
+  {
+    title: '2) Sprint and Team Setup',
     description: 'Establish the team context and sprint boundaries used during the planning run.',
     href: '/teams',
     cta: 'Open Team Setup'
   },
   {
-    title: '2) Backlog Preparation',
+    title: '3) Backlog and Planning Inputs',
     description: 'Use supporting demand and BRD governance stages to prepare backlog inputs and traceability.',
     href: '/agentic-workflow',
     cta: 'Open Supporting Workflow'
   },
   {
-    title: '3) Conceptual Framework Briefing',
-    description: 'Use the supervisor-facing map to explain roles, agents, artifacts, and governance points in under 30 seconds.',
-    href: '/conceptual-framework',
-    cta: 'Open Conceptual Framework'
-  },
-  {
-    title: '4) SAFe Sprint Planning',
+    title: '4) Sprint Planning Workspace',
     description: 'Run specialist planning agents, compare estimates, and apply human review decisions.',
     href: '/sprint-planning-workspace',
     cta: 'Open Sprint Planning Workspace'
   },
   {
     title: '5) Dependencies, Risks, and Architecture Guidance',
-    description: 'Inspect dependency graph, risk register, and architecture notes, then export evidence bundles.',
-    href: '/planning-export-center',
-    cta: 'Open Planning Export Center'
+    description: 'Inspect dependency findings, risk register, and architecture recommendations in the planning workspace.',
+    href: '/sprint-planning-workspace#dependency-risk-architecture',
+    cta: 'Open Specialist Findings'
   },
   {
-    title: '6) Evaluation Evidence',
+    title: '6) Human Review and Governance',
+    description: 'Show decision statuses, reviewer accountability, rationale traceability, and audit timeline filters.',
+    href: '/sprint-planning-workspace#governance-review',
+    cta: 'Open Governance and Audit'
+  },
+  {
+    title: '7) Evaluation Evidence',
     description: 'Capture TAM and scenario metrics for the thesis evaluation chapter.',
     href: '/evaluation',
     cta: 'Open Evaluation Console'
+  },
+  {
+    title: '8) Conceptual Framework Close',
+    description: 'Close with the SAFe activity, role, agent, artifact, and governance mapping for thesis framing.',
+    href: '/conceptual-framework',
+    cta: 'Open Conceptual Framework'
   }
 ]
 
@@ -81,6 +93,7 @@ export default function DemoPage() {
       if (!res.ok) throw new Error(json.message || 'Demo data operation failed')
 
       setStatus(json.status || null)
+      await loadStatus()
       if (action === 'load') {
         setMessage('Thesis demo data loaded successfully. Planning, dependencies, risks, architecture, scenarios, and evaluation evidence are ready.')
       } else {
@@ -105,11 +118,16 @@ export default function DemoPage() {
             governance evidence, and evaluation outcomes.
           </p>
         </div>
-        <div className="heroLinks">
-          <Link href="/conceptual-framework">Conceptual Framework</Link>
-          <Link href="/sprint-planning-workspace">Sprint Planning Workspace</Link>
-          <Link href="/evaluation">Evaluation Evidence</Link>
-          <Link href="/">Home</Link>
+        <div className="heroNavPanel">
+          <p className="heroNavLabel">Thesis Navigation</p>
+          <div className="heroNavGrid">
+            <Link className="primary" href="/sprint-planning-workspace">Sprint Planning Workspace</Link>
+            <Link className="primary" href="/evaluation">Evaluation Evidence</Link>
+            <Link className="primary" href="/conceptual-framework">Conceptual Framework</Link>
+            <Link href="/thesis-readiness-checklist">Supervisor Readiness Checklist</Link>
+            <Link href="/chapter-alignment-notes">Chapter 4/5 Alignment Notes</Link>
+            <Link href="/">Home</Link>
+          </div>
         </div>
       </header>
 
@@ -205,8 +223,8 @@ export default function DemoPage() {
         }
 
         .hero {
-          display: flex;
-          justify-content: space-between;
+          display: grid;
+          grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr);
           gap: 12px;
           margin-bottom: 12px;
         }
@@ -222,20 +240,51 @@ export default function DemoPage() {
           max-width: 760px;
         }
 
-        .heroLinks {
-          display: flex;
-          flex-wrap: wrap;
+        .heroNavPanel {
+          border: 1px solid #d6e3f4;
+          border-radius: 14px;
+          background: rgba(255, 255, 255, 0.9);
+          padding: 10px;
+          display: grid;
+          gap: 8px;
+          align-content: start;
+        }
+
+        .heroNavLabel {
+          margin: 0;
+          font-size: 11px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: #35597c;
+          font-weight: 700;
+        }
+
+        .heroNavGrid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 8px;
         }
 
-        .heroLinks :global(a) {
+        .heroNavGrid :global(a) {
           text-decoration: none;
           color: #0d3a64;
           border: 1px solid #c9dcf1;
-          border-radius: 999px;
+          border-radius: 10px;
           background: #fff;
-          padding: 7px 13px;
+          padding: 9px 10px;
           font-weight: 700;
+          font-size: 12px;
+          line-height: 1.25;
+          min-height: 44px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          text-align: center;
+        }
+
+        .heroNavGrid :global(a.primary) {
+          background: linear-gradient(135deg, #eef5ff, #f6fbff);
+          border-color: #b7cfee;
         }
 
         .banner {
@@ -268,9 +317,9 @@ export default function DemoPage() {
         }
 
         .seedActions {
-          display: flex;
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
           gap: 8px;
-          flex-wrap: wrap;
         }
 
         .seedActions button {
@@ -281,6 +330,7 @@ export default function DemoPage() {
           color: #fff;
           font-weight: 700;
           cursor: pointer;
+          width: 100%;
         }
 
         .seedActions button.secondary {
@@ -299,7 +349,7 @@ export default function DemoPage() {
 
         .seedStats {
           display: grid;
-          grid-template-columns: repeat(5, minmax(0, 1fr));
+          grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
           gap: 8px;
         }
 
@@ -310,12 +360,27 @@ export default function DemoPage() {
           background: #f8fbff;
           font-size: 12px;
           color: #163c65;
+          line-height: 1.35;
         }
 
         .pathGrid {
           display: grid;
           grid-template-columns: repeat(3, minmax(0, 1fr));
           gap: 10px;
+        }
+
+        @media (max-width: 1200px) {
+          .pathGrid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+
+          .heroNavGrid {
+            grid-template-columns: 1fr;
+          }
+
+          .seedActions {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
         }
 
         .stepCard {
@@ -358,7 +423,7 @@ export default function DemoPage() {
           }
 
           .hero {
-            flex-direction: column;
+            grid-template-columns: 1fr;
           }
 
           .pathGrid {
@@ -368,12 +433,16 @@ export default function DemoPage() {
           .seedStats {
             grid-template-columns: repeat(2, minmax(0, 1fr));
           }
-         }
-       `}</style>
+
+          .seedActions {
+            grid-template-columns: 1fr;
+          }
+        }
+      `}</style>
 
       <style jsx global>{`
         @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&family=Space+Grotesk:wght@400;600;700&display=swap');
       `}</style>
-     </main>
-   )
- }
+    </main>
+  )
+}

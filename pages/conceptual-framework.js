@@ -83,7 +83,9 @@ export default function ConceptualFrameworkPage() {
         <div className="heroLinks">
           <Link href="/thesis-demo">Thesis Demo</Link>
           <Link href="/sprint-planning-workspace">Sprint Planning Workspace</Link>
-          <Link href="/evaluation">Evaluation</Link>
+          <Link href="/evaluation">Evaluation Evidence</Link>
+          <Link href="/thesis-readiness-checklist">Supervisor Readiness Checklist</Link>
+          <Link href="/chapter-alignment-notes">Chapter 4/5 Alignment Notes</Link>
           <Link href="/planning-export-center">Export Center</Link>
           <Link href="/project-documentation">Documentation</Link>
           <Link href="/">Home</Link>

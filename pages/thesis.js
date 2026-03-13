@@ -52,6 +52,10 @@ export default function Thesis() {
           <Link href="/thesis-demo">Thesis Demo</Link>
           <Link href="/sprint-planning-workspace">Sprint Planning Workspace</Link>
           <Link href="/thesis-analyze">Thesis Analysis</Link>
+          <Link href="/evaluation">Evaluation Evidence</Link>
+          <Link href="/conceptual-framework">Conceptual Framework</Link>
+          <Link href="/thesis-readiness-checklist">Supervisor Readiness Checklist</Link>
+          <Link href="/chapter-alignment-notes">Chapter 4/5 Alignment Notes</Link>
           {showDebugLink ? <Link href="/thesis-debug">Upload Debug</Link> : null}
           <Link href="/">Home</Link>
         </div>

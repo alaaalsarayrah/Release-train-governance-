@@ -41,9 +41,14 @@ export default function ThesisAnalyze() {
           <p>Review thesis extraction outputs used as supporting evidence alongside the primary Sprint Planning Workspace demo.</p>
         </div>
         <div className="heroLinks">
+          <Link href="/thesis-demo">Thesis Demo</Link>
           <Link href="/sprint-planning-workspace">Sprint Planning Workspace</Link>
-          <Link href="/">Home</Link>
+          <Link href="/evaluation">Evaluation Evidence</Link>
+          <Link href="/conceptual-framework">Conceptual Framework</Link>
+          <Link href="/thesis-readiness-checklist">Supervisor Readiness Checklist</Link>
+          <Link href="/chapter-alignment-notes">Chapter 4/5 Alignment Notes</Link>
           <Link href="/thesis">Thesis Upload</Link>
+          <Link href="/">Home</Link>
           <button onClick={() => void load()} disabled={loading}>{loading ? 'Refreshing...' : 'Refresh'}</button>
         </div>
       </header>
@@ -87,12 +92,6 @@ export default function ThesisAnalyze() {
             File: <strong>{data.fileName || 'unknown'}</strong><br />
             Parsed characters: <strong>{typeof data.textLength === 'number' ? data.textLength : 0}</strong>
           </p>
-
-          {data.source && data.source !== 'thesis-upload' ? (
-            <div className="caution">
-              This analysis used a fallback source. Upload thesis from Thesis Upload for thesis-scoped parsing.
-            </div>
-          ) : null}
 
           {(data.parserWarnings || []).length ? (
             <>
@@ -245,16 +244,6 @@ export default function ThesisAnalyze() {
           color: #991b1b;
           background: #fef2f2;
           border-color: #fecaca;
-        }
-
-        .caution {
-          border: 1px solid #fcd34d;
-          background: #fffbeb;
-          color: #92400e;
-          border-radius: 10px;
-          padding: 8px;
-          font-size: 12px;
-          margin-bottom: 6px;
         }
 
         .muted {

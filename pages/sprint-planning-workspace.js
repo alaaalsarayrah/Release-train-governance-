@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { getThesisDemoHydrationState, loadThesisDemoData, resetThesisDemoData } from '../lib/thesis/demo-state'
 
 const AGENTS = [
   { key: 'product_owner_assistant', label: 'Product Owner Assistant' },
@@ -189,6 +190,7 @@ export default function SprintPlanningWorkspace() {
 
   const [running, setRunning] = useState(false)
   const [demoDataBusy, setDemoDataBusy] = useState('')
+  const [hydrationState, setHydrationState] = useState(null)
   const [message, setMessage] = useState('')
   const [sessionId, setSessionId] = useState('')
   const [session, setSession] = useState(null)
@@ -255,25 +257,41 @@ export default function SprintPlanningWorkspace() {
     }
   }
 
-  async function hydrateLatestSession(teamRows = teams, sprintRows = sprints) {
-    try {
-      const res = await fetch('/api/planning/session?limit=25')
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.message || 'Failed to load planning sessions')
+  async function hydrateLatestSession(options = {}) {
+    const autoRecover = options.autoRecover !== false
+    const teamRows = options.teamRows || teams
+    const sprintRows = options.sprintRows || sprints
 
-      const sessions = Array.isArray(json.sessions) ? json.sessions : []
-      if (!sessions.length) {
+    try {
+      const hydration = await getThesisDemoHydrationState({ autoRecover })
+      const nextTeams = hydration.teamSetup?.teams || teamRows
+      const nextSprints = hydration.teamSetup?.sprints || sprintRows
+
+      setHydrationState(hydration)
+      setTeams(nextTeams)
+      setSprints(nextSprints)
+      setSelectedTeam(hydration.preferredSession?.team_name || hydration.activeSprint?.teamName || nextTeams[0]?.name || '')
+      setSelectedSprint(hydration.preferredSession?.sprint_name || hydration.activeSprint?.name || nextSprints[0]?.name || '')
+
+      if (!hydration.preferredSession?.id) {
         setSessionId('')
         setSession(null)
+        setMessage(hydration.recoveryReason || 'No planning session found. Load thesis demo data to populate the workspace.')
         return false
       }
 
-      const preferred = sessions.find((row) => String(row.id).startsWith('PLAN-THESIS-DEMO'))
-        || sessions.find((row) => String(row.status || '').toLowerCase() === 'finalized')
-        || sessions[0]
+      await refreshSession(hydration.preferredSession.id, {
+        syncContext: true,
+        teamRows: nextTeams,
+        sprintRows: nextSprints
+      })
 
-      if (!preferred?.id) return false
-      await refreshSession(preferred.id, { syncContext: true, teamRows, sprintRows })
+      if (hydration.recovered) {
+        setMessage('Thesis demo data was recovered automatically and the workspace was rehydrated.')
+      } else if (hydration.recoveryError) {
+        setMessage(`Automatic recovery did not complete: ${hydration.recoveryError}`)
+      }
+
       return true
     } catch (err) {
       setMessage(`Failed to hydrate latest session: ${String(err?.message || err)}`)
@@ -281,26 +299,16 @@ export default function SprintPlanningWorkspace() {
     }
   }
 
-  async function bootstrap() {
+  async function bootstrap(options = {}) {
+    const autoRecover = options.autoRecover !== false
+
     try {
-      const [teamRes, runRes] = await Promise.all([
-        fetch('/api/team-setup'),
-        fetch('/api/evaluation/scenario-runner')
-      ])
-
-      const teamJson = await teamRes.json()
+      const runRes = await fetch('/api/evaluation/scenario-runner')
       const runJson = await runRes.json()
-
-      const teamRows = teamJson.teams || []
-      const sprintRows = teamJson.sprints || []
-      setTeams(teamRows)
-      setSprints(sprintRows)
-      setSelectedTeam(teamRows[0]?.name || '')
-      setSelectedSprint(sprintRows[0]?.name || '')
       setScenarioRuns(runJson.runs || [])
 
       await loadBacklog('local')
-      await hydrateLatestSession(teamRows, sprintRows)
+      await hydrateLatestSession({ autoRecover })
     } catch (err) {
       setMessage(`Failed to initialize workspace: ${String(err?.message || err)}`)
     }
@@ -315,15 +323,13 @@ export default function SprintPlanningWorkspace() {
     setDemoDataBusy(action)
     setMessage('')
     try {
-      const res = await fetch('/api/demo-data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, profile: 'thesis-demo' })
-      })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.message || 'Demo data action failed')
+      if (action === 'load') {
+        await loadThesisDemoData()
+      } else {
+        await resetThesisDemoData()
+      }
 
-      await bootstrap()
+      await bootstrap({ autoRecover: false })
       setMessage(
         action === 'load'
           ? 'Thesis demo data loaded. Workspace hydrated with the latest seeded planning session.'
@@ -688,7 +694,14 @@ export default function SprintPlanningWorkspace() {
   }
 
   async function refreshSession(id = sessionId, options = {}) {
-    if (!id) return
+    if (!id) {
+      setSessionId('')
+      setSession(null)
+      setAuditSessionId('')
+      setAuditLogs([])
+      return
+    }
+
     try {
       const res = await fetch(`/api/planning/session?sessionId=${encodeURIComponent(id)}`)
       const json = await res.json()
@@ -699,6 +712,10 @@ export default function SprintPlanningWorkspace() {
         syncWorkspaceFromSession(json.session, options.teamRows || teams, options.sprintRows || sprints)
       }
     } catch (err) {
+      setSessionId('')
+      setSession(null)
+      setAuditSessionId('')
+      setAuditLogs([])
       setMessage(`Session refresh failed: ${String(err?.message || err)}`)
     }
   }
@@ -826,6 +843,7 @@ export default function SprintPlanningWorkspace() {
   async function loadAuditTimeline(targetSessionId = auditSessionId, overrides = {}) {
     const nextSessionId = String(targetSessionId || '').trim()
     if (!nextSessionId) {
+      setAuditSessionId('')
       setAuditLogs([])
       return
     }
@@ -835,6 +853,7 @@ export default function SprintPlanningWorkspace() {
     const to = overrides.to ?? auditToDate
 
     setAuditLoading(true)
+    setAuditSessionId(nextSessionId)
     try {
       const params = new URLSearchParams({
         brId: nextSessionId,
@@ -849,9 +868,9 @@ export default function SprintPlanningWorkspace() {
       const json = await res.json()
       if (!res.ok) throw new Error(json.message || 'Failed to load audit timeline')
 
-      setAuditSessionId(nextSessionId)
       setAuditLogs(Array.isArray(json.logs) ? json.logs : [])
     } catch (err) {
+      setAuditLogs([])
       setMessage(`Audit timeline load failed: ${String(err?.message || err)}`)
     } finally {
       setAuditLoading(false)
@@ -930,7 +949,9 @@ export default function SprintPlanningWorkspace() {
         <div className="links">
           <Link href="/thesis-demo">Thesis Demo</Link>
           <Link href="/conceptual-framework">Conceptual Framework</Link>
-          <Link href="/evaluation">Evaluation</Link>
+          <Link href="/evaluation">Evaluation Evidence</Link>
+          <Link href="/thesis-readiness-checklist">Supervisor Readiness Checklist</Link>
+          <Link href="/chapter-alignment-notes">Chapter 4/5 Alignment Notes</Link>
           <Link href="/planning-export-center">Export Center</Link>
           <Link href="/agentic-workflow">Supporting Workflow</Link>
           <Link href="/dashboard">Supporting Dashboard</Link>
@@ -945,6 +966,9 @@ export default function SprintPlanningWorkspace() {
         <p className="muted">
           Keep this workspace presentation-ready by loading deterministic thesis data, or reset to the default baseline when needed.
         </p>
+        <p className="muted">
+          Active profile: {hydrationState?.status?.activeProfile?.profile || 'unknown'} | Preferred session: {hydrationState?.preferredSession?.id || 'none'}
+        </p>
         <div className="inline">
           <button onClick={() => void runDemoDataAction('load')} disabled={Boolean(demoDataBusy)}>
             {demoDataBusy === 'load' ? 'Loading...' : 'Load Thesis Demo Data'}
@@ -952,7 +976,7 @@ export default function SprintPlanningWorkspace() {
           <button className="secondary" onClick={() => void runDemoDataAction('reset')} disabled={Boolean(demoDataBusy)}>
             {demoDataBusy === 'reset' ? 'Resetting...' : 'Reset Demo Data'}
           </button>
-          <button className="ghost" onClick={() => void hydrateLatestSession()} disabled={Boolean(demoDataBusy)}>
+          <button className="ghost" onClick={() => void hydrateLatestSession({ autoRecover: true })} disabled={Boolean(demoDataBusy)}>
             Refresh Latest Session
           </button>
         </div>
@@ -1275,8 +1299,8 @@ export default function SprintPlanningWorkspace() {
         )}
       </section>
 
-      <section className="panel">
-        <h2>5.4) Governance Review Loop and Audit Timeline</h2>
+      <section id="governance-review" className="panel">
+        <h2>5.4) Governance and Review Loop with Audit Timeline</h2>
         <p className="muted">
           Formal oversight view showing review-loop progression, accountable actors, and timestamped audit evidence for thesis reporting.
         </p>
@@ -1460,7 +1484,7 @@ export default function SprintPlanningWorkspace() {
         )}
       </section>
 
-      <section className="panel">
+      <section id="dependency-risk-architecture" className="panel">
         <h2>7) Dependency Table + Graph View</h2>
         {!(session?.dependencies || []).length ? (
           <p className="muted">No dependencies available yet. Run or load a planning session to populate the dependency register.</p>

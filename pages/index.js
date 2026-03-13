@@ -13,11 +13,6 @@ export default function Home() {
       desc: 'Guided end-to-end walkthrough for supervisor review.'
     },
     {
-      href: '/conceptual-framework',
-      title: 'Conceptual Framework',
-      desc: '30-second SAFe-Agentic AI mapping for supervisor-facing explanation.'
-    },
-    {
       href: '/sprint-planning-workspace',
       title: 'SAFe Sprint Planning Workspace',
       desc: 'Primary prototype workspace for planning, estimation, dependencies, risks, and architecture guidance.'
@@ -28,9 +23,27 @@ export default function Home() {
       desc: 'Capture TAM and scenario data to support thesis findings.'
     },
     {
+      href: '/conceptual-framework',
+      title: 'Conceptual Framework',
+      desc: '30-second SAFe-Agentic AI mapping for supervisor-facing explanation.'
+    },
+    {
       href: '/planning-export-center',
       title: 'Planning Export Center',
       desc: 'Generate governed JSON/CSV evidence for review and reporting.'
+    }
+  ]
+
+  const thesisSupportLinks = [
+    {
+      href: '/thesis-readiness-checklist',
+      title: 'Supervisor Readiness Checklist',
+      desc: 'Secondary supervisor-facing checklist for validating the thesis demonstration flow and evidence readiness.'
+    },
+    {
+      href: '/chapter-alignment-notes',
+      title: 'Chapter 4/5 Alignment Notes',
+      desc: 'Secondary defense reference linking visible prototype features to chapter evidence and limitation framing.'
     }
   ]
 
@@ -47,19 +60,19 @@ export default function Home() {
 
   const demoSteps = [
     {
+      href: '/thesis-demo',
+      title: 'Thesis Demo Entry',
+      desc: 'Open the guided supervisor walkthrough and load deterministic thesis data.'
+    },
+    {
       href: '/teams',
       title: 'Sprint and Team Setup',
       desc: 'Select or configure the delivery team and sprint context.'
     },
     {
       href: '/agentic-workflow',
-      title: 'Backlog Preparation',
+      title: 'Backlog and Planning Inputs',
       desc: 'Run supporting demand and BRD governance to prepare backlog inputs.'
-    },
-    {
-      href: '/conceptual-framework',
-      title: 'Conceptual Framework Briefing',
-      desc: 'Explain role-agent-artifact-governance mapping before the interactive demo.'
     },
     {
       href: '/sprint-planning-workspace',
@@ -67,14 +80,24 @@ export default function Home() {
       desc: 'Run AI specialist agents with capacity-aware planning and human overrides.'
     },
     {
-      href: '/planning-export-center',
       title: 'Dependencies, Risks, and Architecture Review',
-      desc: 'Inspect and export planning artifacts for governance discussion.'
+      href: '/sprint-planning-workspace#dependency-risk-architecture',
+      desc: 'Inspect cross-team dependencies, risk register, and architecture guidance outputs.'
+    },
+    {
+      href: '/sprint-planning-workspace#governance-review',
+      title: 'Human Review and Governance',
+      desc: 'Show accept/modify/reject decisions, reviewer accountability, and audit timeline.'
     },
     {
       href: '/evaluation',
       title: 'Evaluation Evidence Capture',
       desc: 'Record scenario outcomes and TAM metrics for thesis evidence.'
+    },
+    {
+      href: '/conceptual-framework',
+      title: 'Conceptual Framework',
+      desc: 'Close with the SAFe activity-to-agent governance map for thesis defense framing.'
     }
   ]
 
@@ -109,8 +132,9 @@ export default function Home() {
 
           <div className="heroActions">
             <Link href="/thesis-demo" className="primary">Start Thesis Demo</Link>
-            <Link href="/conceptual-framework">Open Conceptual Framework</Link>
             <Link href="/sprint-planning-workspace">Open Sprint Planning Workspace</Link>
+            <Link href="/evaluation">Open Evaluation Evidence</Link>
+            <Link href="/conceptual-framework">Open Conceptual Framework</Link>
             <Link href="/agentic-workflow" className="ghost">Open Supporting Workflow</Link>
           </div>
 
@@ -138,7 +162,7 @@ export default function Home() {
       <section className="linksCard bottomLinks">
         <div className="sectionHead">
           <h2>Thesis Demo Path</h2>
-          <p>Recommended walkthrough: sprint setup, backlog preparation, planning decisions, governance review, evaluation evidence.</p>
+          <p>Recommended walkthrough: thesis demo entry, setup, planning, specialist findings, governance, evidence, and framework close.</p>
         </div>
 
         <ol className="demoPath">
@@ -163,6 +187,23 @@ export default function Home() {
           {primaryLinks.map((item) => (
             <Link key={item.href} href={item.href} className="linkTile primaryTile">
               <em>Primary</em>
+              <strong>{item.title}</strong>
+              <span>{item.desc}</span>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <section className="linksCard bottomLinks">
+        <div className="sectionHead">
+          <h2>Thesis Support Materials</h2>
+          <p>Secondary supervisor-facing references that support the main thesis flow without competing with it.</p>
+        </div>
+
+        <div className="linkGrid">
+          {thesisSupportLinks.map((item) => (
+            <Link key={item.href} href={item.href} className="linkTile">
+              <em>Thesis Support</em>
               <strong>{item.title}</strong>
               <span>{item.desc}</span>
             </Link>
@@ -369,7 +410,7 @@ export default function Home() {
           margin: 0;
           padding: 0;
           display: grid;
-          grid-template-columns: repeat(5, minmax(0, 1fr));
+          grid-template-columns: repeat(4, minmax(0, 1fr));
           gap: 10px;
         }
 

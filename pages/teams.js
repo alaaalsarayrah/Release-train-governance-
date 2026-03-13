@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { getThesisDemoHydrationState, loadThesisDemoData, resetThesisDemoData } from '../lib/thesis/demo-state'
 
 export default function TeamsPage() {
   const [data, setData] = useState({ teams: [], sprints: [] })
   const [loading, setLoading] = useState(true)
+  const [demoBusy, setDemoBusy] = useState('')
+  const [demoState, setDemoState] = useState(null)
+  const [pageMessage, setPageMessage] = useState('')
   const [initializing, setInitializing] = useState(false)
   const [provisioning, setProvisioning] = useState(false)
   const [provisionReport, setProvisionReport] = useState(null)
@@ -17,13 +21,29 @@ export default function TeamsPage() {
   const [adminFixing, setAdminFixing] = useState(false)
   const [adminFixReport, setAdminFixReport] = useState(null)
 
-  async function load() {
+  async function load(options = {}) {
+    const autoRecover = options.autoRecover !== false
+
     try {
-      const res = await fetch('/api/team-setup')
-      const json = await res.json()
-      setData({ teams: json.teams || [], sprints: json.sprints || [] })
+      const hydration = await getThesisDemoHydrationState({ autoRecover })
+      setDemoState(hydration)
+      setData({
+        teams: hydration.teamSetup?.teams || [],
+        sprints: hydration.teamSetup?.sprints || []
+      })
+
+      if (hydration.recovered) {
+        setPageMessage('Thesis demo setup was recovered automatically and is ready for the guided walkthrough.')
+      } else if (hydration.recoveryError) {
+        setPageMessage(`Thesis demo recovery failed: ${hydration.recoveryError}`)
+      } else if (hydration.needsRecovery) {
+        setPageMessage(hydration.recoveryReason || 'Thesis demo setup is incomplete. Load thesis demo data to populate this page.')
+      } else {
+        setPageMessage('')
+      }
     } catch (err) {
       console.error(err)
+      setPageMessage(`Setup load failed: ${String(err?.message || err)}`)
     } finally {
       setLoading(false)
     }
@@ -41,6 +61,27 @@ export default function TeamsPage() {
     return message
   }
 
+  function formatAdoApiError(payload, fallbackMessage) {
+    const code = String(payload?.adoErrorCode || '').trim().toUpperCase()
+    const detail = String(payload?.adoErrorMessage || payload?.detail || payload?.error || '').trim()
+
+    if (code === 'ADO_AUTH') {
+      return `ADO authentication failed. Check PAT configuration and token expiry in Administrator settings.${detail ? ` (${detail})` : ''}`
+    }
+
+    if (code === 'ADO_FORBIDDEN') {
+      return `ADO access is forbidden for the configured token or policy. Verify permissions for this project.${detail ? ` (${detail})` : ''}`
+    }
+
+    if (code === 'ADO_UNAVAILABLE' || code === 'ADO_THROTTLED') {
+      return `ADO is temporarily unavailable. Retry after a short delay.${detail ? ` (${detail})` : ''}`
+    }
+
+    const message = String(payload?.message || fallbackMessage).trim()
+    if (detail) return `${message}: ${detail}`
+    return message
+  }
+
   async function initializeTeams() {
     setInitializing(true)
     try {
@@ -48,6 +89,7 @@ export default function TeamsPage() {
       const json = await res.json()
       if (!res.ok) throw new Error(json.message || 'Failed to initialize teams')
       setData({ teams: json.setup?.teams || [], sprints: json.setup?.sprints || [] })
+      await load({ autoRecover: false })
       alert('Teams and sprints initialized successfully')
     } catch (err) {
       console.error(err)
@@ -72,7 +114,7 @@ export default function TeamsPage() {
         body: JSON.stringify({ userEmails: emails, inviteSiteHumans: true })
       })
       const json = await res.json()
-      if (!res.ok) throw new Error(json.message || 'Provision failed')
+      if (!res.ok) throw new Error(formatAdoApiError(json, 'Provision failed'))
       setProvisionReport(json.report)
       alert('ADO provisioning completed')
     } catch (err) {
@@ -89,7 +131,7 @@ export default function TeamsPage() {
     try {
       const res = await fetch('/api/ado-team-admin-fix', { method: 'POST' })
       const json = await res.json()
-      if (!res.ok) throw new Error(json.message || 'Admin fix failed')
+      if (!res.ok) throw new Error(formatAdoApiError(json, 'Admin fix failed'))
       setAdminFixReport(json.report)
       alert('ADO admin fix completed')
     } catch (err) {
@@ -137,7 +179,38 @@ export default function TeamsPage() {
       const json = await res.json()
       if (!res.ok) throw new Error(formatTeamSetupWriteError(json))
       setData({ teams: json.setup?.teams || [], sprints: json.setup?.sprints || [] })
+      setDemoState((current) => (current ? { ...current, teamSetup: json.setup || current.teamSetup } : current))
       alert(successMessage)
+  }
+
+  async function runDemoAction(action) {
+    if (action === 'reset') {
+      const confirmed = window.confirm('Reset demo data to the baseline site setup?')
+      if (!confirmed) return
+    }
+
+    setDemoBusy(action)
+    setPageMessage('')
+
+    try {
+      if (action === 'load') {
+        await loadThesisDemoData()
+      } else {
+        await resetThesisDemoData()
+      }
+
+      await load({ autoRecover: false })
+      setPageMessage(
+        action === 'load'
+          ? 'Thesis demo setup loaded. Team, sprint, and member data now match the seeded supervisor walkthrough.'
+          : 'Demo data reset to the baseline site setup.'
+      )
+    } catch (err) {
+      console.error(err)
+      setPageMessage(`Demo data action failed: ${String(err?.message || err)}`)
+    } finally {
+      setDemoBusy('')
+    }
   }
 
   function getSuggestedEmailUpdatesFromReadiness() {
@@ -270,7 +343,7 @@ export default function TeamsPage() {
     try {
       const res = await fetch('/api/ado-sync-site-users', { method: 'POST' })
       const json = await res.json()
-      if (!res.ok) throw new Error(json.message || 'Sync failed')
+      if (!res.ok) throw new Error(formatAdoApiError(json, 'Sync failed'))
       setSyncSiteUsersReport(json.report)
       alert('Site users sync to ADO completed')
     } catch (err) {
@@ -287,7 +360,7 @@ export default function TeamsPage() {
     try {
       const res = await fetch('/api/ado-assignment-readiness')
       const json = await res.json()
-      if (!res.ok) throw new Error(json.message || 'Assignment readiness check failed')
+      if (!res.ok) throw new Error(formatAdoApiError(json, 'Assignment readiness check failed'))
       setAssignmentReadiness(json)
     } catch (err) {
       console.error(err)
@@ -298,7 +371,7 @@ export default function TeamsPage() {
   }
 
   useEffect(() => {
-    load()
+    void load({ autoRecover: true })
   }, [])
 
   function getMemberKind(member) {
@@ -337,6 +410,9 @@ export default function TeamsPage() {
   const totalMembers = memberStats.total
   const aiMembers = memberStats.ai
   const humanMembers = memberStats.human
+  const activeSprint = (data.sprints || []).find((sprint) => String(sprint.status || '').toLowerCase() === 'active') || null
+  const activeProfile = demoState?.status?.activeProfile?.profile || 'unknown'
+  const latestSessionId = demoState?.preferredSession?.id || '-'
 
   return (
     <main className="shell">
@@ -344,21 +420,67 @@ export default function TeamsPage() {
 
       <header className="hero">
         <div>
+          <p className="eyebrow">Supporting Thesis Setup</p>
           <h1>Teams and Sprint Setup</h1>
           <p>
-            Configure regional squads, map member emails, and provision Azure DevOps project structure for delivery.
+            Supporting setup page for the thesis demo and Sprint Planning Workspace. It surfaces seeded team,
+            sprint, and member data used by the deterministic supervisor walkthrough while keeping ADO tooling as
+            secondary operational support.
           </p>
         </div>
 
         <div className="heroLinks">
+          <Link href="/thesis-demo">Thesis Demo</Link>
+          <Link href="/sprint-planning-workspace">Sprint Planning Workspace</Link>
+          <Link href="/evaluation">Evaluation Evidence</Link>
+          <Link href="/planning-export-center">Export Center</Link>
+          <Link href="/conceptual-framework">Conceptual Framework</Link>
+          <Link href="/thesis-readiness-checklist">Supervisor Checklist</Link>
+          <Link href="/agentic-workflow">Supporting Workflow</Link>
           <Link href="/">Home</Link>
-          <Link href="/dashboard">Dashboard</Link>
-          <Link href="/agentic-workflow">Workflow Console</Link>
-          <Link href="/agentic-config">Personas & Audit</Link>
-          <Link href="/scrum-master">Scrum Master</Link>
-          <Link href="/ado-work-item-types">ADO Types</Link>
         </div>
       </header>
+
+      {pageMessage ? <div className="notice">{pageMessage}</div> : null}
+
+      <section className="panel actionPanel">
+        <div className="actionHead">
+          <h2>Thesis Demo Setup State</h2>
+          <p>
+            This page should open in a populated state when deterministic thesis demo data is available.
+            Use the recovery controls only if the seeded setup is missing or has been reset.
+          </p>
+        </div>
+        <div className="demoStateGrid">
+          <article>
+            <h3>Active Profile</h3>
+            <p className="smallStat">{activeProfile}</p>
+          </article>
+          <article>
+            <h3>Active Sprint</h3>
+            <p className="smallStat">{activeSprint?.name || 'Not configured'}</p>
+          </article>
+          <article>
+            <h3>Latest Demo Session</h3>
+            <p className="smallStat">{latestSessionId}</p>
+          </article>
+          <article>
+            <h3>Recovery Status</h3>
+            <p className="smallStat">{demoState?.needsRecovery ? 'Needs attention' : 'Ready for demo'}</p>
+          </article>
+        </div>
+        <div className="actionRow">
+          <button onClick={() => void runDemoAction('load')} disabled={Boolean(demoBusy)}>
+            {demoBusy === 'load' ? 'Loading...' : 'Load Thesis Demo Data'}
+          </button>
+          <button onClick={() => void runDemoAction('reset')} disabled={Boolean(demoBusy)}>
+            {demoBusy === 'reset' ? 'Resetting...' : 'Reset Demo Data'}
+          </button>
+          <button onClick={() => void load({ autoRecover: true })} disabled={loading || Boolean(demoBusy)}>
+            {loading ? 'Refreshing...' : 'Refresh Setup State'}
+          </button>
+        </div>
+      </section>
 
       <section className="summaryGrid">
         <article>
@@ -378,26 +500,26 @@ export default function TeamsPage() {
           <p>{humanMembers}</p>
         </article>
         <article>
-          <h3>AI Agentic Members</h3>
+          <h3>AI Agent Members</h3>
           <p>{aiMembers}</p>
         </article>
         <article>
-          <h3>Unknown Type</h3>
-          <p>{memberStats.unknown}</p>
+          <h3>Active Sprint</h3>
+          <p className="smallStat">{activeSprint?.name || 'None'}</p>
         </article>
       </section>
 
       <section className="panel actionPanel">
         <div className="actionHead">
-          <h2>Provisioning Actions</h2>
-          <p>Initialize site setup first, then provision ADO resources and run diagnostics if needed.</p>
+          <h2>Advanced Setup and Provisioning</h2>
+          <p>Keep these tools for operational setup and diagnostics. They are secondary to the thesis demo storyline.</p>
         </div>
         <div className="actionRow">
           <button onClick={initializeTeams} disabled={initializing}>
-            {initializing ? 'Initializing...' : 'Initialize Dubai / RAK / AUH'}
+            {initializing ? 'Initializing...' : 'Initialize Baseline Setup'}
           </button>
           <button onClick={provisionInAdo} disabled={provisioning}>
-            {provisioning ? 'Provisioning ADO...' : 'Provision Teams + Site Users in ADO'}
+            {provisioning ? 'Provisioning ADO...' : 'Provision Supporting ADO Structure'}
           </button>
           <button onClick={checkAssignmentReadiness} disabled={checkingAssignability}>
             {checkingAssignability ? 'Checking Assignability...' : 'Check Assignment Readiness'}
@@ -409,7 +531,7 @@ export default function TeamsPage() {
       </section>
 
       <section className="panel">
-        <h2>Optional: Invite Human Users to ADO</h2>
+        <h2>Optional ADO User Sync</h2>
         <p className="muted">
           Site human users are already invited by Provision Teams + Site Users in ADO. Add extra comma-separated emails only if needed.
         </p>
@@ -430,7 +552,7 @@ export default function TeamsPage() {
       </section>
 
       <section className="panel">
-        <h2>Member Email Mapping (Team, Member, Email)</h2>
+        <h2>Member Email Mapping (Advanced)</h2>
         <p className="muted">One per line. Example: Dubai Team, Noura Khan, noura@yourcompany.com</p>
         <textarea
           value={memberEmailInput}
@@ -463,9 +585,14 @@ export default function TeamsPage() {
       {loading ? <div className="notice">Loading teams...</div> : null}
 
       <section className="panel">
-        <h2>Sprints</h2>
+        <h2>Seeded Sprint Setup</h2>
         {data.sprints.length === 0 ? (
-          <p className="muted">No sprints configured.</p>
+          <div className="emptyState">
+            <p className="muted">No sprint setup is available yet for the thesis demo.</p>
+            <button onClick={() => void runDemoAction('load')} disabled={Boolean(demoBusy)}>
+              {demoBusy === 'load' ? 'Loading...' : 'Load Thesis Demo Data'}
+            </button>
+          </div>
         ) : (
           <div className="tableWrap">
             <table>
@@ -493,9 +620,14 @@ export default function TeamsPage() {
       </section>
 
       <section className="panel">
-        <h2>Teams and Members (Human + AI Agentic)</h2>
+        <h2>Seeded Teams and Members</h2>
         {data.teams.length === 0 ? (
-          <p className="muted">No teams configured.</p>
+          <div className="emptyState">
+            <p className="muted">No thesis teams are currently loaded.</p>
+            <button onClick={() => void runDemoAction('load')} disabled={Boolean(demoBusy)}>
+              {demoBusy === 'load' ? 'Loading...' : 'Load Thesis Demo Data'}
+            </button>
+          </div>
         ) : (
           <div className="teamGrid">
             {data.teams.map((team) => (
@@ -791,6 +923,15 @@ export default function TeamsPage() {
           font-size: 33px;
         }
 
+        .eyebrow {
+          margin: 0 0 8px;
+          font-size: 12px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: #0a5b8a;
+          font-weight: 700;
+        }
+
         .hero p {
           margin: 8px 0 0;
           color: #3d536d;
@@ -816,7 +957,7 @@ export default function TeamsPage() {
 
         .summaryGrid {
           display: grid;
-          grid-template-columns: repeat(5, minmax(0, 1fr));
+          grid-template-columns: repeat(6, minmax(0, 1fr));
           gap: 9px;
           margin-bottom: 12px;
         }
@@ -839,6 +980,11 @@ export default function TeamsPage() {
           margin: 5px 0 0;
           font-size: 28px;
           font-weight: 700;
+        }
+
+        .summaryGrid p.smallStat {
+          font-size: 16px;
+          line-height: 1.3;
         }
 
         .panel {
@@ -915,6 +1061,25 @@ export default function TeamsPage() {
           border-radius: 10px;
           padding: 10px;
           margin-bottom: 12px;
+        }
+
+        .demoStateGrid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 9px;
+          margin-top: 10px;
+        }
+
+        .demoStateGrid article {
+          border: 1px solid #d6e3f4;
+          border-radius: 12px;
+          background: #fbfdff;
+          padding: 11px;
+        }
+
+        .emptyState {
+          display: grid;
+          gap: 10px;
         }
 
         .teamGrid {
@@ -1016,6 +1181,10 @@ export default function TeamsPage() {
           .summaryGrid {
             grid-template-columns: repeat(3, minmax(0, 1fr));
           }
+
+          .demoStateGrid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
         }
 
         @media (max-width: 900px) {
@@ -1033,6 +1202,10 @@ export default function TeamsPage() {
 
           .summaryGrid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+
+          .demoStateGrid {
+            grid-template-columns: 1fr;
           }
 
           .actionRow {

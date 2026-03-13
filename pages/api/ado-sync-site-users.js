@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import { sendAdoError } from './_lib/ado-error'
 
 const adoConfigPath = path.join(process.cwd(), 'public', '.ado-config.json')
 const teamSetupPath = path.join(process.cwd(), 'data', 'team-setup.json')
@@ -140,6 +141,6 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ success: true, report })
   } catch (err) {
-    return res.status(500).json({ message: 'User sync failed', error: String(err.message || err) })
+    return sendAdoError(res, err, 'User sync failed')
   }
 }

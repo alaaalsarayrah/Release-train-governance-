@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import { sendAdoError } from './_lib/ado-error'
 
 const adoConfigPath = path.join(process.cwd(), 'public', '.ado-config.json')
 const teamSetupPath = path.join(process.cwd(), 'data', 'team-setup.json')
@@ -104,7 +105,9 @@ export default async function handler(req, res) {
       pathWithQuery: `/_apis/projects/${encodeURIComponent(project)}/teams?api-version=7.1-preview.3`
     })
     if (!teamsResp.ok) {
-      return res.status(500).json({ message: 'Failed to load ADO teams', detail: teamsResp.message })
+      const err = new Error(`Failed to load ADO teams: ${teamsResp.message}`)
+      err.status = teamsResp.status
+      return sendAdoError(res, err, 'ADO admin fix failed')
     }
     const teamByName = new Map((teamsResp.json?.value || []).map((t) => [t.name, t]))
 
@@ -114,7 +117,9 @@ export default async function handler(req, res) {
       pathWithQuery: `/${encodeURIComponent(project)}/_apis/wit/classificationnodes/Iterations?$depth=7&api-version=7.1`
     })
     if (!itResp.ok) {
-      return res.status(500).json({ message: 'Failed to load iterations', detail: itResp.message })
+      const err = new Error(`Failed to load iterations: ${itResp.message}`)
+      err.status = itResp.status
+      return sendAdoError(res, err, 'ADO admin fix failed')
     }
     const nodes = flatten(itResp.json)
 
@@ -213,6 +218,6 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ success: true, report })
   } catch (err) {
-    return res.status(500).json({ message: 'ADO admin fix failed', error: String(err.message || err) })
+    return sendAdoError(res, err, 'ADO admin fix failed')
   }
 }

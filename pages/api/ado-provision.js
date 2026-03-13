@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import { sendAdoError } from './_lib/ado-error'
 
 const adoConfigPath = path.join(process.cwd(), 'public', '.ado-config.json')
 const teamSetupPath = path.join(process.cwd(), 'data', 'team-setup.json')
@@ -94,7 +95,9 @@ async function adoRequest({ org, pat, apiPath, method = 'GET', body }) {
 
   if (!res.ok) {
     const message = json?.message || json?.raw || `ADO request failed (${res.status})`
-    throw new Error(message)
+    const err = new Error(message)
+    err.status = res.status
+    throw err
   }
 
   return json
@@ -129,7 +132,9 @@ async function inviteUser({ org, pat, email }) {
 
   if (!res.ok || !logicalSuccess) {
     const message = opErrors[0] || json?.message || json?.raw || `User invite failed (${res.status})`
-    throw new Error(message)
+    const err = new Error(message)
+    err.status = res.status
+    throw err
   }
 
   return json
@@ -438,6 +443,6 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ success: true, report })
   } catch (err) {
-    return res.status(500).json({ message: 'ADO provisioning failed', error: String(err.message || err) })
+    return sendAdoError(res, err, 'ADO provisioning failed')
   }
 }

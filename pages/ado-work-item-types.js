@@ -12,7 +12,15 @@ export default function AdoWorkItemTypesPage() {
     try {
       const res = await fetch('/api/ado-work-item-types')
       const json = await res.json()
-      if (!res.ok) throw new Error(json.message || 'Failed to load ADO work item types')
+      if (!res.ok) {
+        const code = String(json?.adoErrorCode || '').trim()
+        const detail = String(json?.adoErrorMessage || json?.error || '').trim()
+        const base = String(json?.message || 'Failed to load ADO work item types').trim()
+        const parts = [base]
+        if (code) parts.push(`[${code}]`)
+        if (detail) parts.push(detail)
+        throw new Error(parts.join(' '))
+      }
       setData(json)
     } catch (err) {
       setError(String(err.message || err))
