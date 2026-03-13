@@ -163,7 +163,24 @@ export async function ensureSchema(db) {
       team_name TEXT,
       sprint_name TEXT,
       epic_status TEXT,
+      feature_status TEXT,
       user_story_status TEXT,
+      task_status TEXT,
+      sprint_status TEXT,
+      story_points_total REAL,
+      weighted_points_total REAL,
+      ado_sync_summary TEXT,
+      ado_board_url TEXT,
+      ado_dashboard_url TEXT,
+      ado_iteration_path TEXT,
+      ado_assigned_to TEXT,
+      safe_pi_name TEXT,
+      safe_art_name TEXT,
+      safe_dor_checks TEXT,
+      safe_dod_checks TEXT,
+      safe_capacity_guardrails TEXT,
+      safe_wsjf_summary TEXT,
+      safe_dependency_metrics TEXT,
       stage1_status TEXT DEFAULT 'Not Started',
       stage1_output TEXT,
       stage1_error TEXT,
@@ -198,7 +215,24 @@ export async function ensureSchema(db) {
   await safeAlter(db, 'ALTER TABLE business_requests ADD COLUMN team_name TEXT')
   await safeAlter(db, 'ALTER TABLE business_requests ADD COLUMN sprint_name TEXT')
   await safeAlter(db, 'ALTER TABLE business_requests ADD COLUMN epic_status TEXT')
+  await safeAlter(db, 'ALTER TABLE business_requests ADD COLUMN feature_status TEXT')
   await safeAlter(db, 'ALTER TABLE business_requests ADD COLUMN user_story_status TEXT')
+  await safeAlter(db, 'ALTER TABLE business_requests ADD COLUMN task_status TEXT')
+  await safeAlter(db, 'ALTER TABLE business_requests ADD COLUMN sprint_status TEXT')
+  await safeAlter(db, 'ALTER TABLE business_requests ADD COLUMN story_points_total REAL')
+  await safeAlter(db, 'ALTER TABLE business_requests ADD COLUMN weighted_points_total REAL')
+  await safeAlter(db, 'ALTER TABLE business_requests ADD COLUMN ado_sync_summary TEXT')
+  await safeAlter(db, 'ALTER TABLE business_requests ADD COLUMN ado_board_url TEXT')
+  await safeAlter(db, 'ALTER TABLE business_requests ADD COLUMN ado_dashboard_url TEXT')
+  await safeAlter(db, 'ALTER TABLE business_requests ADD COLUMN ado_iteration_path TEXT')
+  await safeAlter(db, 'ALTER TABLE business_requests ADD COLUMN ado_assigned_to TEXT')
+  await safeAlter(db, 'ALTER TABLE business_requests ADD COLUMN safe_pi_name TEXT')
+  await safeAlter(db, 'ALTER TABLE business_requests ADD COLUMN safe_art_name TEXT')
+  await safeAlter(db, 'ALTER TABLE business_requests ADD COLUMN safe_dor_checks TEXT')
+  await safeAlter(db, 'ALTER TABLE business_requests ADD COLUMN safe_dod_checks TEXT')
+  await safeAlter(db, 'ALTER TABLE business_requests ADD COLUMN safe_capacity_guardrails TEXT')
+  await safeAlter(db, 'ALTER TABLE business_requests ADD COLUMN safe_wsjf_summary TEXT')
+  await safeAlter(db, 'ALTER TABLE business_requests ADD COLUMN safe_dependency_metrics TEXT')
   await safeAlter(db, "ALTER TABLE business_requests ADD COLUMN stage1_status TEXT DEFAULT 'Not Started'")
   await safeAlter(db, 'ALTER TABLE business_requests ADD COLUMN stage1_output TEXT')
   await safeAlter(db, 'ALTER TABLE business_requests ADD COLUMN stage1_error TEXT')
@@ -252,23 +286,78 @@ export async function ensureSchema(db) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       scenario_id TEXT NOT NULL,
       scenario_name TEXT,
+      planning_session_id TEXT,
+      team_id TEXT,
+      team_name TEXT,
+      sprint_id TEXT,
+      sprint_name TEXT,
       participant_id TEXT,
       participant_role TEXT,
+      evaluator_id TEXT,
+      evaluator_role TEXT,
+      evaluated_at TEXT,
       perceived_usefulness INTEGER,
       ease_of_use INTEGER,
       trust INTEGER,
       intention_to_use INTEGER,
       task_completion_minutes REAL,
+      baseline_manual_planning_minutes REAL,
+      ai_assisted_planning_minutes REAL,
+      time_reduction_minutes REAL,
+      time_reduction_percent REAL,
       recommendations_generated INTEGER,
       recommendations_accepted INTEGER,
+      recommendation_acceptance_ratio REAL,
+      dependency_issues_identified INTEGER,
+      dependency_issues_validated INTEGER,
+      dependency_validation_ratio REAL,
+      risk_items_identified INTEGER,
+      risk_recommendations_accepted INTEGER,
+      risk_acceptance_ratio REAL,
+      estimation_baseline REAL,
+      ai_supported_estimate REAL,
+      estimation_variance REAL,
+      estimation_variance_percent REAL,
       clarification_requests INTEGER,
+      task_completion_success INTEGER,
       system_response_ms INTEGER,
       error_count INTEGER,
+      evaluator_comments TEXT,
+      observations TEXT,
+      limitations TEXT,
       notes TEXT,
       interview_notes TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`
   )
+
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN planning_session_id TEXT')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN team_id TEXT')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN team_name TEXT')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN sprint_id TEXT')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN sprint_name TEXT')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN evaluator_id TEXT')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN evaluator_role TEXT')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN evaluated_at TEXT')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN baseline_manual_planning_minutes REAL')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN ai_assisted_planning_minutes REAL')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN time_reduction_minutes REAL')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN time_reduction_percent REAL')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN recommendation_acceptance_ratio REAL')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN dependency_issues_identified INTEGER')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN dependency_issues_validated INTEGER')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN dependency_validation_ratio REAL')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN risk_items_identified INTEGER')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN risk_recommendations_accepted INTEGER')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN risk_acceptance_ratio REAL')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN estimation_baseline REAL')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN ai_supported_estimate REAL')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN estimation_variance REAL')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN estimation_variance_percent REAL')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN task_completion_success INTEGER')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN evaluator_comments TEXT')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN observations TEXT')
+  await safeAlter(db, 'ALTER TABLE thesis_evaluations ADD COLUMN limitations TEXT')
 
   await dbRun(
     db,

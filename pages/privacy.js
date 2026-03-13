@@ -7,9 +7,11 @@ export default function PrivacyPage() {
     <main className="shell">
       <header className="hero">
         <h1>Privacy Policy</h1>
-        <p>Agentic SDLC iOS app and web platform</p>
+        <p>Thesis prototype for AI-assisted SAFe sprint planning (web and iOS wrapper)</p>
         <p className="muted">Last updated: {updatedOn}</p>
         <div className="links">
+          <Link href="/thesis-demo">Thesis Demo</Link>
+          <Link href="/sprint-planning-workspace">Sprint Planning Workspace</Link>
           <Link href="/">Home</Link>
           <Link href="/support">Support</Link>
           <Link href="/contact">Contact</Link>
@@ -19,8 +21,8 @@ export default function PrivacyPage() {
       <section className="card">
         <h2>Overview</h2>
         <p>
-          Agentic SDLC provides workflow support for software delivery planning and requirements
-          orchestration. We are committed to handling data responsibly and transparently.
+          This thesis prototype provides AI-assisted sprint planning support with supporting upstream
+          workflow modules. We are committed to handling data responsibly and transparently.
         </p>
       </section>
 
@@ -36,7 +38,7 @@ export default function PrivacyPage() {
       <section className="card">
         <h2>How We Use Information</h2>
         <ul>
-          <li>To provide planning, backlog, and workflow automation features.</li>
+          <li>To provide sprint planning support, backlog analysis, and governance evidence features.</li>
           <li>To maintain system security, reliability, and traceability.</li>
           <li>To improve product quality and support troubleshooting.</li>
         </ul>

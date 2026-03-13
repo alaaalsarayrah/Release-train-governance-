@@ -14,6 +14,65 @@ function getAuthHeader(pat) {
   return `Basic ${token}`
 }
 
+function isLikelyValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim())
+}
+
+function isPlaceholderEmail(email) {
+  const value = String(email || '').trim().toLowerCase()
+  const domains = ['test.com', 'example.com', 'example.org', 'example.net', 'invalid.local']
+  return domains.some((domain) => value.endsWith(`@${domain}`))
+}
+
+function isHumanMember(member) {
+  const type = String(member?.type || '').trim().toLowerCase()
+  const name = String(member?.name || '').trim().toLowerCase()
+  if (type.startsWith('ai')) return false
+  if (name.startsWith('ai ')) return false
+  return true
+}
+
+function collectHumanEmailsFromSetup(setup) {
+  const report = {
+    discovered: [],
+    skippedNoEmail: [],
+    skippedInvalidEmail: [],
+    skippedPlaceholderEmail: [],
+    duplicates: []
+  }
+
+  const seen = new Set()
+  for (const team of setup?.teams || []) {
+    for (const member of team?.members || []) {
+      if (!isHumanMember(member)) continue
+
+      const email = String(member?.email || '').trim()
+      if (!email) {
+        report.skippedNoEmail.push({ team: team.name, member: member.name })
+        continue
+      }
+      if (!isLikelyValidEmail(email)) {
+        report.skippedInvalidEmail.push({ team: team.name, member: member.name, email })
+        continue
+      }
+      if (isPlaceholderEmail(email)) {
+        report.skippedPlaceholderEmail.push({ team: team.name, member: member.name, email })
+        continue
+      }
+
+      const key = email.toLowerCase()
+      if (seen.has(key)) {
+        report.duplicates.push({ team: team.name, member: member.name, email })
+        continue
+      }
+      seen.add(key)
+      report.discovered.push({ team: team.name, member: member.name, email })
+    }
+  }
+
+  return report
+}
+
 async function adoRequest({ org, pat, apiPath, method = 'GET', body }) {
   const url = `https://dev.azure.com/${org}${apiPath}`
   const res = await fetch(url, {
@@ -136,7 +195,8 @@ export default async function handler(req, res) {
   try {
     const ado = loadJson(adoConfigPath)
     const setup = loadJson(teamSetupPath)
-    const userEmails = req.body?.userEmails || []
+    const userEmails = Array.isArray(req.body?.userEmails) ? req.body.userEmails : []
+    const inviteSiteHumans = req.body?.inviteSiteHumans !== false
 
     if (!ado?.organization || !ado?.project || !ado?.pat) {
       return res.status(400).json({ message: 'ADO is not configured' })
@@ -160,6 +220,11 @@ export default async function handler(req, res) {
       teamSettingsUpdated: [],
       usersInvited: [],
       userInviteErrors: [],
+      usersDiscoveredFromTeams: [],
+      skippedNoEmail: [],
+      skippedInvalidEmail: [],
+      skippedPlaceholderEmail: [],
+      duplicateEmails: [],
       warnings: []
     }
 
@@ -336,7 +401,23 @@ export default async function handler(req, res) {
       }
     }
 
-    for (const email of userEmails) {
+    const setupEmailReport = collectHumanEmailsFromSetup(setup)
+    if (inviteSiteHumans) {
+      report.usersDiscoveredFromTeams = setupEmailReport.discovered
+      report.skippedNoEmail = setupEmailReport.skippedNoEmail
+      report.skippedInvalidEmail = setupEmailReport.skippedInvalidEmail
+      report.skippedPlaceholderEmail = setupEmailReport.skippedPlaceholderEmail
+      report.duplicateEmails = setupEmailReport.duplicates
+    }
+
+    const combinedEmails = Array.from(
+      new Set([
+        ...userEmails,
+        ...(inviteSiteHumans ? setupEmailReport.discovered.map((x) => x.email) : [])
+      ].map((x) => String(x || '').trim().toLowerCase()).filter(Boolean))
+    )
+
+    for (const email of combinedEmails) {
       try {
         await inviteUser({ org, pat, email })
         report.usersInvited.push(email)
@@ -345,8 +426,14 @@ export default async function handler(req, res) {
       }
     }
 
-    if (userEmails.length === 0) {
-      report.warnings.push('No user emails provided for ADO invitation. Human users and AI agents remain configured in app teams only.')
+    if (combinedEmails.length === 0) {
+      report.warnings.push('No valid human user emails available for ADO invitation. Update team member emails in Teams page or pass userEmails explicitly.')
+    }
+
+    if (setupEmailReport.duplicates.length > 0) {
+      report.warnings.push(
+        `Detected ${setupEmailReport.duplicates.length} duplicate team member emails. This can force assignments to a single ADO identity.`
+      )
     }
 
     return res.status(200).json({ success: true, report })

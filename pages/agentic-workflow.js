@@ -26,6 +26,150 @@ function toneForStage(stage) {
   return 'neutral'
 }
 
+function asBool(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value > 0
+  const normalized = String(value).toLowerCase().trim()
+  if (['true', '1', 'yes', 'y'].includes(normalized)) return true
+  if (['false', '0', 'no', 'n'].includes(normalized)) return false
+  return fallback
+}
+
+function defaultDorChecks(selected) {
+  return {
+    brdApproved: String(selected?.requirement_review_status || '').toLowerCase() === 'approved',
+    wsjfRanked: true,
+    dependenciesReviewed: true,
+    capacityPlanned: true,
+    architectureRunwayReady: true,
+    nfrAligned: true
+  }
+}
+
+function defaultDodChecks(selected) {
+  return {
+    acceptanceCriteriaReady: String(selected?.user_story_status || '').toLowerCase().includes('created'),
+    testEvidenceReady: String(selected?.task_status || '').toLowerCase().includes('created'),
+    releasePlanReady: String(selected?.sprint_status || '').toLowerCase().includes('prepared'),
+    observabilityReady: false,
+    securityReviewComplete: false,
+    opsHandoverReady: false
+  }
+}
+
+function normalizeCapacity(value) {
+  const parsed = parseMaybeJson(value) || {}
+  return {
+    business: Number(parsed.business ?? parsed.businessPercent ?? 60) || 0,
+    enabler: Number(parsed.enabler ?? parsed.enablerPercent ?? 20) || 0,
+    defectRisk: Number(parsed.defectRisk ?? parsed.defect_risk ?? parsed.defectRiskPercent ?? 20) || 0,
+    maxDeviation: Number(parsed.maxDeviation ?? parsed.max_deviation ?? 35) || 35
+  }
+}
+
+function normalizeReviewOutcome(status) {
+  const normalized = String(status || '').toLowerCase()
+  if (normalized.includes('approved')) return 'approved'
+  if (normalized.includes('rejected')) return 'rejected'
+  if (normalized.includes('pending')) return 'pending'
+  return 'none'
+}
+
+function deriveWorkflowStages(item) {
+  if (!item) return []
+
+  const status = String(item.status || '').toLowerCase()
+  const demandStatus = String(item.demand_status || '').toLowerCase()
+  const demandReview = String(item.demand_review_status || '').toLowerCase()
+  const brdStatus = String(item.requirement_status || '').toLowerCase()
+  const brdReview = String(item.requirement_review_status || '').toLowerCase()
+  const sprintStatus = String(item.sprint_status || '').toLowerCase()
+  const currentStage = String(item.workflow_current_stage || '').toLowerCase()
+
+  const sprintPrepared = sprintStatus.includes('prepared') || sprintStatus.includes('assigned to')
+  const sprintRunning = sprintStatus.includes('in progress') || currentStage.includes('sprint running')
+  const sprintCompleted = sprintStatus.includes('completed') || currentStage.includes('release governance')
+  const deliveryClosed = currentStage.includes('closed - value delivered')
+
+  return [
+    {
+      key: 'request-submitted',
+      label: 'Business Request Submitted',
+      detail: item.id,
+      state: 'done'
+    },
+    {
+      key: 'request-approved',
+      label: 'Business Request Approved',
+      detail: item.status || 'Pending',
+      state: status === 'approved' ? 'done' : (status === 'rejected' ? 'blocked' : 'active')
+    },
+    {
+      key: 'demand-generated',
+      label: 'Demand Intelligence Drafted',
+      detail: item.demand_status || 'Not Started',
+      state: demandStatus.includes('generated') || demandStatus.includes('approved')
+        ? 'done'
+        : (demandStatus.includes('running') ? 'active' : 'todo')
+    },
+    {
+      key: 'demand-reviewed',
+      label: 'Brain Demand Gate',
+      detail: item.demand_review_status || 'Not Reviewed',
+      state: demandReview.includes('approved')
+        ? 'done'
+        : (demandReview.includes('rejected') ? 'blocked' : (demandReview.includes('pending') ? 'active' : 'todo'))
+    },
+    {
+      key: 'brd-drafted',
+      label: 'BRD Drafted by Analyst Agent',
+      detail: item.requirement_status || 'Not Started',
+      state: brdStatus.includes('draft') || brdStatus.includes('submitted') || brdStatus.includes('approved')
+        ? 'done'
+        : (brdStatus.includes('running') ? 'active' : 'todo')
+    },
+    {
+      key: 'brd-reviewed',
+      label: 'Brain BRD Gate',
+      detail: item.requirement_review_status || 'Not Reviewed',
+      state: brdReview.includes('approved')
+        ? 'done'
+        : (brdReview.includes('rejected') ? 'blocked' : (brdReview.includes('pending') ? 'active' : 'todo'))
+    },
+    {
+      key: 'ado-backlog',
+      label: 'ADO Backlog Hierarchy Synced',
+      detail: Number(item.synced_to_ado || 0) ? 'Synced' : 'Not Synced',
+      state: Number(item.synced_to_ado || 0) ? 'done' : 'todo'
+    },
+    {
+      key: 'sprint-ready',
+      label: 'Sprint Prepared with SAFe Guardrails',
+      detail: item.sprint_status || 'Not Prepared',
+      state: sprintPrepared || sprintRunning || sprintCompleted || deliveryClosed ? 'done' : 'todo'
+    },
+    {
+      key: 'sprint-running',
+      label: 'Sprint Execution Running',
+      detail: sprintRunning ? 'In Progress' : (sprintCompleted ? 'Completed' : 'Not Started'),
+      state: sprintRunning ? 'active' : ((sprintCompleted || deliveryClosed) ? 'done' : 'todo')
+    },
+    {
+      key: 'sprint-close',
+      label: 'Sprint Closed',
+      detail: sprintCompleted ? 'Completed' : 'Pending',
+      state: sprintCompleted || deliveryClosed ? 'done' : 'todo'
+    },
+    {
+      key: 'release-signoff',
+      label: 'Release Governance Sign-off',
+      detail: deliveryClosed ? 'Closed - Value Delivered' : 'Pending',
+      state: deliveryClosed ? 'done' : (currentStage.includes('release governance') ? 'active' : 'todo')
+    }
+  ]
+}
+
 export default function AgenticWorkflowPage() {
   const [requests, setRequests] = useState([])
   const [selectedId, setSelectedId] = useState('')
@@ -38,6 +182,14 @@ export default function AgenticWorkflowPage() {
   const [brdSummary, setBrdSummary] = useState('')
   const [brdDetails, setBrdDetails] = useState('')
   const [brdFile, setBrdFile] = useState(null)
+  const [adoTeamName, setAdoTeamName] = useState('')
+  const [adoSprintName, setAdoSprintName] = useState('')
+  const [safePiName, setSafePiName] = useState('PI-2026-Q1')
+  const [safeArtName, setSafeArtName] = useState('Digital ART')
+  const [dorState, setDorState] = useState(defaultDorChecks(null))
+  const [dodState, setDodState] = useState(defaultDodChecks(null))
+  const [capacityState, setCapacityState] = useState({ business: 60, enabler: 20, defectRisk: 20, maxDeviation: 35 })
+  const [savingSafe, setSavingSafe] = useState(false)
 
   const actorLabel = sessionIdentity
     ? sessionIdentity.role
@@ -75,6 +227,39 @@ export default function AgenticWorkflowPage() {
     if (!selectedId) return
     void loadLogs(selectedId)
   }, [selectedId])
+
+  useEffect(() => {
+    if (!selected) return
+    setAdoTeamName(selected.team_name || '')
+    setAdoSprintName(selected.sprint_name || '')
+    setSafePiName(selected.safe_pi_name || 'PI-2026-Q1')
+    setSafeArtName(selected.safe_art_name || 'Digital ART')
+
+    const dorStored = parseMaybeJson(selected.safe_dor_checks) || {}
+    const dodStored = parseMaybeJson(selected.safe_dod_checks) || {}
+    const dorDefaults = defaultDorChecks(selected)
+    const dodDefaults = defaultDodChecks(selected)
+
+    setDorState({
+      brdApproved: asBool(dorStored.brdApproved, dorDefaults.brdApproved),
+      wsjfRanked: asBool(dorStored.wsjfRanked, dorDefaults.wsjfRanked),
+      dependenciesReviewed: asBool(dorStored.dependenciesReviewed, dorDefaults.dependenciesReviewed),
+      capacityPlanned: asBool(dorStored.capacityPlanned, dorDefaults.capacityPlanned),
+      architectureRunwayReady: asBool(dorStored.architectureRunwayReady, dorDefaults.architectureRunwayReady),
+      nfrAligned: asBool(dorStored.nfrAligned, dorDefaults.nfrAligned)
+    })
+
+    setDodState({
+      acceptanceCriteriaReady: asBool(dodStored.acceptanceCriteriaReady, dodDefaults.acceptanceCriteriaReady),
+      testEvidenceReady: asBool(dodStored.testEvidenceReady, dodDefaults.testEvidenceReady),
+      releasePlanReady: asBool(dodStored.releasePlanReady, dodDefaults.releasePlanReady),
+      observabilityReady: asBool(dodStored.observabilityReady, dodDefaults.observabilityReady),
+      securityReviewComplete: asBool(dodStored.securityReviewComplete, dodDefaults.securityReviewComplete),
+      opsHandoverReady: asBool(dodStored.opsHandoverReady, dodDefaults.opsHandoverReady)
+    })
+
+    setCapacityState(normalizeCapacity(selected.safe_capacity_guardrails))
+  }, [selected])
 
   useEffect(() => {
     void loadSessionIdentity()
@@ -117,7 +302,8 @@ export default function AgenticWorkflowPage() {
     setBusyAction(action)
     setMessage('')
     const controller = new AbortController()
-    const timeoutHandle = setTimeout(() => controller.abort(), 45000)
+    const longAction = action === 'sync-backlog' || action === 'prepare-sprint' || action === 'review-brd'
+    const timeoutHandle = setTimeout(() => controller.abort(), longAction ? 240000 : 45000)
 
     try {
       const res = await fetch('/api/agentic/workflow-action', {
@@ -182,28 +368,101 @@ export default function AgenticWorkflowPage() {
     })
   }
 
+  async function saveSafeControls() {
+    if (!selected) return
+    setSavingSafe(true)
+    setMessage('')
+    try {
+      const payload = {
+        id: selected.id,
+        safe_pi_name: safePiName,
+        safe_art_name: safeArtName,
+        safe_dor_checks: JSON.stringify(dorState),
+        safe_dod_checks: JSON.stringify(dodState),
+        safe_capacity_guardrails: JSON.stringify(capacityState),
+        actor: actorLabel,
+        auditStage: 'SAFe Governance',
+        auditAction: 'Updated PI/ART, DoR/DoD and capacity guardrails'
+      }
+
+      const res = await fetch('/api/business-request', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.message || 'Failed to save SAFe controls')
+
+      setMessage('SAFe controls saved')
+      await refreshAll()
+      await loadLogs(selected.id)
+    } catch (err) {
+      setMessage(`Failed to save SAFe controls: ${err.message || err}`)
+    } finally {
+      setSavingSafe(false)
+    }
+  }
+
   const demandOutput = parseMaybeJson(selected?.demand_output)
   const requirementDetails = parseMaybeJson(selected?.requirement_details)
+  const adoSyncSummary = parseMaybeJson(selected?.ado_sync_summary)
+  const wsjfSummary = parseMaybeJson(selected?.safe_wsjf_summary) || adoSyncSummary?.wsjfSummary || null
+  const dependencyMetrics = parseMaybeJson(selected?.safe_dependency_metrics) || adoSyncSummary?.dependencyMetrics || null
+  const capacityActual = adoSyncSummary?.capacityActual || null
+  const wsjfTop = Array.isArray(wsjfSummary?.rankings) ? wsjfSummary.rankings[0] : null
+  const capacityTotal = Number(capacityState.business || 0) + Number(capacityState.enabler || 0) + Number(capacityState.defectRisk || 0)
+  const demandReviewOutcome = normalizeReviewOutcome(selected?.demand_review_status)
+  const brdReviewOutcome = normalizeReviewOutcome(selected?.requirement_review_status)
+  const workflowStages = deriveWorkflowStages(selected)
+  const sprintLower = String(selected?.sprint_status || '').toLowerCase()
+  const workflowLower = String(selected?.workflow_current_stage || '').toLowerCase()
+  const safeActionPayload = {
+    piName: safePiName,
+    artName: safeArtName,
+    dorChecks: dorState,
+    dodChecks: dodState,
+    capacityGuardrails: {
+      business: Number(capacityState.business || 0),
+      enabler: Number(capacityState.enabler || 0),
+      defectRisk: Number(capacityState.defectRisk || 0),
+      maxDeviation: Number(capacityState.maxDeviation || 35)
+    }
+  }
+  const adoLinks = adoSyncSummary?.links || {
+    boardUrl: selected?.ado_board_url || null,
+    dashboardsUrl: selected?.ado_dashboard_url || null,
+    backlogUrl: null,
+    sprintsUrl: null
+  }
   const demandReviewPending = String(selected?.demand_review_status || '').toLowerCase().includes('pending')
   const brdReviewPending = String(selected?.requirement_review_status || '').toLowerCase().includes('pending')
   const readyForScoping = String(selected?.workflow_current_stage || '').toLowerCase().includes('ready for epic scoping')
+  const backlogSynced = Boolean(Number(selected?.synced_to_ado || 0))
+  const canBacklogSync = String(selected?.requirement_review_status || '').toLowerCase() === 'approved'
+  const canPrepareSprint = backlogSynced || String(selected?.user_story_status || '').toLowerCase().includes('created')
+  const canStartSprint = String(selected?.sprint_status || '').toLowerCase().includes('prepared')
+  const canCompleteSprint = sprintLower.includes('in progress') || workflowLower.includes('sprint running')
+  const canCloseDelivery = sprintLower.includes('completed') || workflowLower.includes('release governance')
 
   return (
     <main className="shell">
       <div className="glow" aria-hidden="true" />
       <header className="top">
         <div>
-          <h1>Agentic SDLC Workflow Console</h1>
+          <h1>Supporting Demand and BRD Governance Console</h1>
           <p>
-            Brain Orchestrator, Demander, and Business Analyst personas collaborate across demand and BRD stages.
+            Supporting upstream module for preparing demand and BRD artifacts that feed the primary SAFe sprint planning thesis flow.
           </p>
         </div>
         <div className="links">
-          <Link href="/">Home</Link>
+          <Link href="/thesis-demo">Thesis Demo</Link>
           <Link href="/sprint-planning-workspace">Sprint Planning Workspace</Link>
-          <Link href="/agentic-config">Persona Config</Link>
           <Link href="/evaluation">Evaluation</Link>
-          <Link href="/dashboard">Dashboard</Link>
+          <Link href="/planning-export-center">Export Center</Link>
+          <Link href="/dashboard">Supporting Dashboard</Link>
+          <Link href="/agentic-config">Persona Config</Link>
+          <Link href="/teams">Teams</Link>
+          <Link href="/">Home</Link>
         </div>
       </header>
 
@@ -277,6 +536,30 @@ export default function AgenticWorkflowPage() {
                   <div><strong>BRD Review</strong><span>{selected.requirement_review_status || 'Not Reviewed'}</span></div>
                   <div><strong>Current Stage</strong><span>{selected.workflow_current_stage || 'Business Request'}</span></div>
                   <div><strong>BRD Version</strong><span>{selected.requirement_brd_version || 0}</span></div>
+                  <div><strong>Epic Status</strong><span>{selected.epic_status || 'Not Created'}</span></div>
+                  <div><strong>Feature Status</strong><span>{selected.feature_status || 'Not Created'}</span></div>
+                  <div><strong>User Stories</strong><span>{selected.user_story_status || 'Not Created'}</span></div>
+                  <div><strong>Tasks</strong><span>{selected.task_status || 'Not Created'}</span></div>
+                  <div><strong>Sprint Status</strong><span>{selected.sprint_status || 'Not Prepared'}</span></div>
+                  <div><strong>Story Points</strong><span>{selected.story_points_total || 0}</span></div>
+                </div>
+
+                <div className="workflow-rail">
+                  <div className="workflow-rail-head">
+                    <h4>End-to-End Workflow Lifecycle</h4>
+                    <span>{selected.workflow_current_stage || 'Business Request'}</span>
+                  </div>
+                  <div className="workflow-stage-grid">
+                    {workflowStages.map((stage, index) => (
+                      <article key={stage.key} className={`workflow-stage ${stage.state}`}>
+                        <span className="stage-index">{index + 1}</span>
+                        <div>
+                          <strong>{stage.label}</strong>
+                          <p>{stage.detail}</p>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
                 </div>
 
                 {readyForScoping ? (
@@ -285,80 +568,370 @@ export default function AgenticWorkflowPage() {
                   </div>
                 ) : null}
 
-                <div className="action-row">
+                <div className="ado-targets">
+                  <label>
+                    Squad Team
+                    <input
+                      value={adoTeamName}
+                      onChange={(e) => setAdoTeamName(e.target.value)}
+                      placeholder="e.g. Dubai Team"
+                    />
+                  </label>
+                  <label>
+                    Sprint
+                    <input
+                      value={adoSprintName}
+                      onChange={(e) => setAdoSprintName(e.target.value)}
+                      placeholder="e.g. Sprint 1"
+                    />
+                  </label>
+                </div>
+
+                <div className="safe-card">
+                  <h4>SAFe Governance Controls</h4>
+                  <div className="safe-grid">
+                    <label>
+                      PI Name
+                      <input
+                        value={safePiName}
+                        onChange={(e) => setSafePiName(e.target.value)}
+                        placeholder="e.g. PI-2026-Q2"
+                      />
+                    </label>
+                    <label>
+                      ART Name
+                      <input
+                        value={safeArtName}
+                        onChange={(e) => setSafeArtName(e.target.value)}
+                        placeholder="e.g. Digital ART"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="safe-checklists">
+                    <div className="checklist-card">
+                      <h5 className="checklist-title">Definition of Ready (Gate: Prepare Sprint)</h5>
+                      <label className="checkRow">
+                        <input
+                          type="checkbox"
+                          checked={dorState.brdApproved}
+                          onChange={(e) => setDorState((prev) => ({ ...prev, brdApproved: e.target.checked }))}
+                        />
+                        <span className="checkText">BRD approved</span>
+                      </label>
+                      <label className="checkRow">
+                        <input
+                          type="checkbox"
+                          checked={dorState.wsjfRanked}
+                          onChange={(e) => setDorState((prev) => ({ ...prev, wsjfRanked: e.target.checked }))}
+                        />
+                        <span className="checkText">WSJF ranking completed</span>
+                      </label>
+                      <label className="checkRow">
+                        <input
+                          type="checkbox"
+                          checked={dorState.dependenciesReviewed}
+                          onChange={(e) => setDorState((prev) => ({ ...prev, dependenciesReviewed: e.target.checked }))}
+                        />
+                        <span className="checkText">Dependencies reviewed</span>
+                      </label>
+                      <label className="checkRow">
+                        <input
+                          type="checkbox"
+                          checked={dorState.capacityPlanned}
+                          onChange={(e) => setDorState((prev) => ({ ...prev, capacityPlanned: e.target.checked }))}
+                        />
+                        <span className="checkText">Capacity plan agreed</span>
+                      </label>
+                      <label className="checkRow">
+                        <input
+                          type="checkbox"
+                          checked={dorState.architectureRunwayReady}
+                          onChange={(e) => setDorState((prev) => ({ ...prev, architectureRunwayReady: e.target.checked }))}
+                        />
+                        <span className="checkText">Architecture runway ready</span>
+                      </label>
+                      <label className="checkRow">
+                        <input
+                          type="checkbox"
+                          checked={dorState.nfrAligned}
+                          onChange={(e) => setDorState((prev) => ({ ...prev, nfrAligned: e.target.checked }))}
+                        />
+                        <span className="checkText">NFR coverage aligned</span>
+                      </label>
+                    </div>
+
+                    <div className="checklist-card">
+                      <h5 className="checklist-title">Definition of Done (Gate: Start Sprint)</h5>
+                      <label className="checkRow">
+                        <input
+                          type="checkbox"
+                          checked={dodState.acceptanceCriteriaReady}
+                          onChange={(e) => setDodState((prev) => ({ ...prev, acceptanceCriteriaReady: e.target.checked }))}
+                        />
+                        <span className="checkText">Acceptance criteria ready</span>
+                      </label>
+                      <label className="checkRow">
+                        <input
+                          type="checkbox"
+                          checked={dodState.testEvidenceReady}
+                          onChange={(e) => setDodState((prev) => ({ ...prev, testEvidenceReady: e.target.checked }))}
+                        />
+                        <span className="checkText">Test evidence plan ready</span>
+                      </label>
+                      <label className="checkRow">
+                        <input
+                          type="checkbox"
+                          checked={dodState.releasePlanReady}
+                          onChange={(e) => setDodState((prev) => ({ ...prev, releasePlanReady: e.target.checked }))}
+                        />
+                        <span className="checkText">Release plan ready</span>
+                      </label>
+                      <label className="checkRow">
+                        <input
+                          type="checkbox"
+                          checked={dodState.observabilityReady}
+                          onChange={(e) => setDodState((prev) => ({ ...prev, observabilityReady: e.target.checked }))}
+                        />
+                        <span className="checkText">Observability/monitoring ready</span>
+                      </label>
+                      <label className="checkRow">
+                        <input
+                          type="checkbox"
+                          checked={dodState.securityReviewComplete}
+                          onChange={(e) => setDodState((prev) => ({ ...prev, securityReviewComplete: e.target.checked }))}
+                        />
+                        <span className="checkText">Security review complete</span>
+                      </label>
+                      <label className="checkRow">
+                        <input
+                          type="checkbox"
+                          checked={dodState.opsHandoverReady}
+                          onChange={(e) => setDodState((prev) => ({ ...prev, opsHandoverReady: e.target.checked }))}
+                        />
+                        <span className="checkText">Operations handover ready</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <h5>Capacity Guardrails (Prepare Sprint Validation)</h5>
+                  <div className="safe-grid">
+                    <label>
+                      Business %
+                      <input
+                        type="number"
+                        value={capacityState.business}
+                        onChange={(e) => setCapacityState((prev) => ({ ...prev, business: Number(e.target.value || 0) }))}
+                      />
+                    </label>
+                    <label>
+                      Enabler %
+                      <input
+                        type="number"
+                        value={capacityState.enabler}
+                        onChange={(e) => setCapacityState((prev) => ({ ...prev, enabler: Number(e.target.value || 0) }))}
+                      />
+                    </label>
+                    <label>
+                      Defect/Risk %
+                      <input
+                        type="number"
+                        value={capacityState.defectRisk}
+                        onChange={(e) => setCapacityState((prev) => ({ ...prev, defectRisk: Number(e.target.value || 0) }))}
+                      />
+                    </label>
+                    <label>
+                      Max Deviation %
+                      <input
+                        type="number"
+                        value={capacityState.maxDeviation}
+                        onChange={(e) => setCapacityState((prev) => ({ ...prev, maxDeviation: Number(e.target.value || 35) }))}
+                      />
+                    </label>
+                    <label>
+                      Total %
+                      <input value={capacityTotal} readOnly />
+                    </label>
+                  </div>
+
+                  <div className="safe-metrics">
+                    <span><strong>Top WSJF:</strong> {wsjfTop ? `${wsjfTop.featureTitle} (${wsjfTop.wsjfScore})` : '-'}</span>
+                    <span><strong>Blocked:</strong> {dependencyMetrics?.blockedStories || 0}</span>
+                    <span><strong>Cross-Team:</strong> {dependencyMetrics?.crossTeamLinks || 0}</span>
+                    <span><strong>Aging:</strong> {dependencyMetrics?.agingBlockers || 0}</span>
+                    <span><strong>Heat:</strong> {dependencyMetrics?.heatScore || 0}</span>
+                    <span><strong>Flow Load:</strong> {capacityActual?.totalPoints || 0} pts</span>
+                    <span><strong>Guardrail Tolerance:</strong> {capacityState.maxDeviation || 35}%</span>
+                  </div>
+
                   <button
                     type="button"
                     className="miniBtn"
-                    onClick={() => void runAction('generate-demand')}
-                    disabled={busyAction === 'generate-demand'}
+                    onClick={() => void saveSafeControls()}
+                    disabled={savingSafe}
                   >
-                    {busyAction === 'generate-demand' ? 'Generating Demand...' : 'Run AI_Demand'}
+                    {savingSafe ? 'Saving Controls...' : 'Save SAFe Controls'}
                   </button>
+                </div>
 
-                  <button
-                    type="button"
-                    className="miniBtn ok"
-                    onClick={() => void sendReviewDecision('review-demand', 'approve')}
-                    disabled={busyAction === 'review-demand' || !demandReviewPending}
-                    title={demandReviewPending ? 'Approve demand output' : `Demand review is ${selected?.demand_review_status || 'not pending'}`}
-                  >
-                    {busyDecision === 'review-demand:approve'
-                      ? 'Approving Demand...'
-                      : demandReviewPending
-                        ? 'Approve Demand'
-                        : 'Demand Review Closed'}
-                  </button>
+                <div className="action-board">
+                  <article className="action-group">
+                    <h5>1) Demand Intelligence</h5>
+                    <button
+                      type="button"
+                      className="miniBtn"
+                      onClick={() => void runAction('generate-demand')}
+                      disabled={busyAction === 'generate-demand'}
+                    >
+                      {busyAction === 'generate-demand' ? 'Generating Demand...' : 'Run AI Demand'}
+                    </button>
 
-                  <button
-                    type="button"
-                    className="miniBtn bad"
-                    onClick={() => void sendReviewDecision('review-demand', 'reject')}
-                    disabled={busyAction === 'review-demand' || !demandReviewPending}
-                    title={demandReviewPending ? 'Reject demand output' : `Demand review is ${selected?.demand_review_status || 'not pending'}`}
-                  >
-                    {busyDecision === 'review-demand:reject'
-                      ? 'Rejecting Demand...'
-                      : demandReviewPending
-                        ? 'Reject Demand'
-                        : 'Demand Review Closed'}
-                  </button>
+                    {demandReviewPending ? (
+                      <div className="review-row">
+                        <button
+                          type="button"
+                          className="miniBtn ok"
+                          onClick={() => void sendReviewDecision('review-demand', 'approve')}
+                          disabled={busyAction === 'review-demand'}
+                        >
+                          {busyDecision === 'review-demand:approve' ? 'Approving Demand...' : 'Approve Demand'}
+                        </button>
+                        <button
+                          type="button"
+                          className="miniBtn bad"
+                          onClick={() => void sendReviewDecision('review-demand', 'reject')}
+                          disabled={busyAction === 'review-demand'}
+                        >
+                          {busyDecision === 'review-demand:reject' ? 'Requesting Rework...' : 'Request Rework'}
+                        </button>
+                      </div>
+                    ) : (
+                      <p className={`review-pill ${demandReviewOutcome}`}>
+                        Demand review outcome: {selected?.demand_review_status || 'Not Reviewed'}
+                      </p>
+                    )}
+                  </article>
 
-                  <button
-                    type="button"
-                    className="miniBtn"
-                    onClick={() => void runAction('generate-brd')}
-                    disabled={busyAction === 'generate-brd'}
-                  >
-                    {busyAction === 'generate-brd' ? 'Generating BRD...' : 'Generate BRD Draft'}
-                  </button>
+                  <article className="action-group">
+                    <h5>2) BRD Governance</h5>
+                    <button
+                      type="button"
+                      className="miniBtn"
+                      onClick={() => void runAction('generate-brd')}
+                      disabled={busyAction === 'generate-brd'}
+                    >
+                      {busyAction === 'generate-brd' ? 'Generating BRD...' : 'Generate BRD Draft'}
+                    </button>
 
-                  <button
-                    type="button"
-                    className="miniBtn ok"
-                    onClick={() => void sendReviewDecision('review-brd', 'approve')}
-                    disabled={busyAction === 'review-brd' || !brdReviewPending}
-                    title={brdReviewPending ? 'Approve BRD review' : `BRD review is ${selected?.requirement_review_status || 'not pending'}`}
-                  >
-                    {busyDecision === 'review-brd:approve'
-                      ? 'Approving BRD...'
-                      : brdReviewPending
-                        ? 'Approve BRD Review'
-                        : 'BRD Review Closed'}
-                  </button>
+                    {brdReviewPending ? (
+                      <div className="review-row">
+                        <button
+                          type="button"
+                          className="miniBtn ok"
+                          onClick={() => void sendReviewDecision('review-brd', 'approve')}
+                          disabled={busyAction === 'review-brd'}
+                        >
+                          {busyDecision === 'review-brd:approve' ? 'Approving BRD...' : 'Approve BRD Review'}
+                        </button>
+                        <button
+                          type="button"
+                          className="miniBtn bad"
+                          onClick={() => void sendReviewDecision('review-brd', 'reject')}
+                          disabled={busyAction === 'review-brd'}
+                        >
+                          {busyDecision === 'review-brd:reject' ? 'Requesting BRD Rework...' : 'Request BRD Rework'}
+                        </button>
+                      </div>
+                    ) : (
+                      <p className={`review-pill ${brdReviewOutcome}`}>
+                        BRD review outcome: {selected?.requirement_review_status || 'Not Reviewed'}
+                      </p>
+                    )}
+                  </article>
 
-                  <button
-                    type="button"
-                    className="miniBtn bad"
-                    onClick={() => void sendReviewDecision('review-brd', 'reject')}
-                    disabled={busyAction === 'review-brd' || !brdReviewPending}
-                    title={brdReviewPending ? 'Reject BRD review' : `BRD review is ${selected?.requirement_review_status || 'not pending'}`}
-                  >
-                    {busyDecision === 'review-brd:reject'
-                      ? 'Rejecting BRD...'
-                      : brdReviewPending
-                        ? 'Reject BRD Review'
-                        : 'BRD Review Closed'}
-                  </button>
+                  <article className="action-group">
+                    <h5>3) ADO Portfolio Flow</h5>
+                    <button
+                      type="button"
+                      className="miniBtn"
+                      onClick={() => void runAction('sync-backlog', {
+                        teamName: adoTeamName,
+                        sprintName: adoSprintName,
+                        ...safeActionPayload
+                      })}
+                      disabled={busyAction === 'sync-backlog' || !canBacklogSync}
+                      title={canBacklogSync ? 'Create Epic/Feature/User Stories/Tasks in ADO backlog' : 'BRD review must be approved first'}
+                    >
+                      {busyAction === 'sync-backlog' ? 'Syncing Backlog...' : 'Sync Epic/Feature/Stories'}
+                    </button>
+
+                    <button
+                      type="button"
+                      className="miniBtn"
+                      onClick={() => void runAction('prepare-sprint', {
+                        teamName: adoTeamName,
+                        sprintName: adoSprintName,
+                        ...safeActionPayload
+                      })}
+                      disabled={busyAction === 'prepare-sprint' || !canPrepareSprint}
+                      title={canPrepareSprint ? 'Provision team sprint settings and board readiness in ADO' : 'Backlog sync required first'}
+                    >
+                      {busyAction === 'prepare-sprint' ? 'Preparing Sprint...' : 'Prepare Sprint in ADO'}
+                    </button>
+                  </article>
+
+                  <article className="action-group">
+                    <h5>4) Sprint and Release Closure</h5>
+                    <button
+                      type="button"
+                      className="miniBtn ok"
+                      onClick={() => void runAction('start-sprint', {
+                        teamName: adoTeamName,
+                        sprintName: adoSprintName,
+                        ...safeActionPayload
+                      })}
+                      disabled={busyAction === 'start-sprint' || !canStartSprint}
+                      title={canStartSprint ? 'Mark sprint as running after readiness checks' : 'Prepare sprint first'}
+                    >
+                      {busyAction === 'start-sprint' ? 'Starting Sprint...' : 'Start Sprint'}
+                    </button>
+
+                    <button
+                      type="button"
+                      className="miniBtn"
+                      onClick={() => void runAction('complete-sprint', {
+                        teamName: adoTeamName,
+                        sprintName: adoSprintName,
+                        ...safeActionPayload
+                      })}
+                      disabled={busyAction === 'complete-sprint' || !canCompleteSprint}
+                      title={canCompleteSprint ? 'Close sprint execution and open release governance stage' : 'Start sprint first'}
+                    >
+                      {busyAction === 'complete-sprint' ? 'Completing Sprint...' : 'Complete Sprint'}
+                    </button>
+
+                    <button
+                      type="button"
+                      className="miniBtn ok"
+                      onClick={() => void runAction('close-delivery', {
+                        teamName: adoTeamName,
+                        sprintName: adoSprintName,
+                        ...safeActionPayload
+                      })}
+                      disabled={busyAction === 'close-delivery' || !canCloseDelivery}
+                      title={canCloseDelivery ? 'Finalize release governance and close delivery loop' : 'Complete sprint first'}
+                    >
+                      {busyAction === 'close-delivery' ? 'Closing Delivery...' : 'Close Delivery'}
+                    </button>
+                  </article>
+                </div>
+
+                <div className="ado-links">
+                  <span className="muted-note">ADO Visibility:</span>
+                  {adoLinks.backlogUrl ? <a href={adoLinks.backlogUrl} target="_blank" rel="noreferrer">Backlog</a> : null}
+                  {adoLinks.boardUrl ? <a href={adoLinks.boardUrl} target="_blank" rel="noreferrer">Board</a> : null}
+                  {adoLinks.sprintsUrl ? <a href={adoLinks.sprintsUrl} target="_blank" rel="noreferrer">Sprints</a> : null}
+                  {adoLinks.dashboardsUrl ? <a href={adoLinks.dashboardsUrl} target="_blank" rel="noreferrer">Dashboards</a> : null}
                 </div>
 
                 <div className="submit-card">
@@ -389,19 +962,25 @@ export default function AgenticWorkflowPage() {
                 </div>
 
                 <div className="output-grid">
-                  <div>
-                    <h4>Demand Output</h4>
+                  <article className="output-card">
+                    <div className="output-head">
+                      <h4>Demand Output</h4>
+                      <span>{demandOutput ? 'JSON Ready' : 'Pending'}</span>
+                    </div>
                     <pre>{demandOutput ? JSON.stringify(demandOutput, null, 2) : 'No demand output yet.'}</pre>
-                  </div>
-                  <div>
-                    <h4>BRD Details</h4>
+                  </article>
+                  <article className="output-card">
+                    <div className="output-head">
+                      <h4>BRD Details</h4>
+                      <span>{requirementDetails ? 'JSON Ready' : 'Pending'}</span>
+                    </div>
                     <pre>{requirementDetails ? JSON.stringify(requirementDetails, null, 2) : 'No BRD details yet.'}</pre>
                     {selected.requirement_doc ? (
-                      <p>
+                      <p className="output-link">
                         BRD File: <a href={selected.requirement_doc} target="_blank" rel="noreferrer">{selected.requirement_doc}</a>
                       </p>
                     ) : null}
-                  </div>
+                  </article>
                 </div>
               </>
             )}
@@ -761,15 +1340,162 @@ export default function AgenticWorkflowPage() {
           border-color: #c7d6e8;
         }
 
-        .action-row .miniBtn {
+        .workflow-rail {
+          border: 1px solid #d2e0f4;
+          border-radius: 12px;
+          background: #f7fbff;
+          padding: 10px;
+          display: grid;
+          gap: 8px;
+          margin-bottom: 12px;
+        }
+
+        .workflow-rail-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+        }
+
+        .workflow-rail-head h4 {
+          margin: 0;
+          font-size: 15px;
+        }
+
+        .workflow-rail-head span {
+          font-size: 12px;
+          color: #385470;
+          font-weight: 700;
+        }
+
+        .workflow-stage-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+          gap: 8px;
+        }
+
+        .workflow-stage {
+          border-radius: 11px;
+          border: 1px solid #d4e2f3;
+          background: #fff;
+          padding: 9px;
+          display: flex;
+          gap: 8px;
+          align-items: flex-start;
+        }
+
+        .workflow-stage strong {
+          display: block;
+          font-size: 12px;
+          color: #143555;
+        }
+
+        .workflow-stage p {
+          margin: 3px 0 0;
+          font-size: 12px;
+          color: #4a6380;
+        }
+
+        .stage-index {
+          width: 22px;
+          height: 22px;
+          border-radius: 999px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 11px;
+          font-weight: 700;
+          color: #153c63;
+          background: #e5f1ff;
+          flex: 0 0 auto;
+        }
+
+        .workflow-stage.done {
+          border-color: #9ed9c0;
+          background: #f1fcf6;
+        }
+
+        .workflow-stage.done .stage-index {
+          background: #c6f1da;
+          color: #0f5a3d;
+        }
+
+        .workflow-stage.active {
+          border-color: #9bc5ea;
+          background: #eff6ff;
+        }
+
+        .workflow-stage.blocked {
+          border-color: #f0b8b5;
+          background: #fff2f1;
+        }
+
+        .workflow-stage.blocked .stage-index {
+          background: #ffd7d3;
+          color: #8b2727;
+        }
+
+        .action-board {
+          display: grid;
+          gap: 10px;
+          grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+          margin-bottom: 12px;
+        }
+
+        .action-group {
+          border-radius: 12px;
+          border: 1px solid #d4e2f3;
+          background: #fbfdff;
+          padding: 10px;
+          display: grid;
+          gap: 8px;
+        }
+
+        .action-group h5 {
+          margin: 0;
+          font-size: 13px;
+          color: #34516d;
+        }
+
+        .action-board .miniBtn {
           min-height: 42px;
           border-radius: 14px;
           font-size: 13px;
           box-shadow: 0 10px 18px rgba(20, 68, 122, 0.2);
         }
 
-        .action-row .miniBtn:hover:not(:disabled) {
+        .action-board .miniBtn:hover:not(:disabled) {
           box-shadow: 0 14px 24px rgba(20, 68, 122, 0.25);
+        }
+
+        .review-row {
+          display: grid;
+          gap: 8px;
+          grid-template-columns: 1fr 1fr;
+        }
+
+        .review-pill {
+          margin: 0;
+          border-radius: 999px;
+          border: 1px solid #c5d8ee;
+          background: #eef5ff;
+          color: #254f79;
+          font-size: 12px;
+          font-weight: 700;
+          padding: 7px 10px;
+          text-align: center;
+        }
+
+        .review-pill.approved {
+          border-color: #9ad6b8;
+          background: #ecfbf2;
+          color: #0d6843;
+        }
+
+        .review-pill.rejected {
+          border-color: #efb9b4;
+          background: #fff1ef;
+          color: #8a2929;
         }
 
         .submit-card .miniBtn {
@@ -788,7 +1514,7 @@ export default function AgenticWorkflowPage() {
 
         .status-grid {
           display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
+          grid-template-columns: repeat(4, minmax(0, 1fr));
           gap: 8px;
           margin: 10px 0 12px;
         }
@@ -812,11 +1538,121 @@ export default function AgenticWorkflowPage() {
           font-weight: 700;
         }
 
-        .action-row {
+        .ado-targets {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+          margin-bottom: 10px;
+        }
+
+        .safe-card {
+          border: 1px solid #cbdff7;
+          background: linear-gradient(180deg, #fcfeff, #f3f8ff);
+          border-radius: 16px;
+          padding: 14px;
+          display: grid;
           gap: 10px;
           margin-bottom: 12px;
+          box-shadow: 0 14px 28px rgba(18, 43, 71, 0.08);
+        }
+
+        .safe-card h4,
+        .safe-card h5 {
+          margin: 0;
+        }
+
+        .safe-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+          gap: 10px;
+        }
+
+        .safe-checklists {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+        }
+
+        .checklist-card {
+          border: 1px solid #d6e6fa;
+          border-radius: 14px;
+          background: #ffffff;
+          padding: 10px;
+          display: grid;
+          gap: 8px;
+        }
+
+        .checklist-title {
+          font-size: 14px;
+          color: #173b5f;
+          margin-bottom: 2px;
+        }
+
+        .checkRow {
+          display: grid;
+          grid-template-columns: 20px 1fr;
+          align-items: center;
+          gap: 8px;
+          font-size: 13px;
+          font-weight: 600;
+          color: #2b4867;
+          border: 1px solid #e3edf9;
+          border-radius: 10px;
+          background: #f8fbff;
+          padding: 6px 8px;
+        }
+
+        .checkRow input {
+          width: 16px;
+          height: 16px;
+          margin: 0;
+          accent-color: #0f6cc9;
+        }
+
+        .checkText {
+          line-height: 1.35;
+        }
+
+        .safe-metrics {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+          gap: 8px;
+          border: 1px solid #d2e0f4;
+          border-radius: 12px;
+          background: #f8fbff;
+          padding: 10px;
+          font-size: 12px;
+          color: #34516d;
+        }
+
+        .safe-metrics span {
+          border: 1px solid #deebfb;
+          border-radius: 10px;
+          background: #fff;
+          padding: 6px 8px;
+        }
+
+        .ado-links {
+          border: 1px solid #d2e0f4;
+          border-radius: 12px;
+          background: #f8fbff;
+          padding: 8px 10px;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          align-items: center;
+          margin-bottom: 12px;
+        }
+
+        .ado-links a {
+          text-decoration: none;
+          color: #0e3b66;
+          font-weight: 700;
+          border: 1px solid #c8dbf0;
+          border-radius: 999px;
+          background: #fff;
+          padding: 4px 10px;
+          font-size: 12px;
         }
 
         .state-note {
@@ -866,25 +1702,68 @@ export default function AgenticWorkflowPage() {
 
         .output-grid {
           display: grid;
-          gap: 10px;
-          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+          grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
         }
 
-        .output-grid h4 {
-          margin: 0 0 6px;
+        .output-card {
+          border: 1px solid #d5e4f8;
+          border-radius: 14px;
+          background: linear-gradient(180deg, #fcfeff, #f5f9ff);
+          padding: 10px;
+          display: grid;
+          gap: 8px;
+          box-shadow: 0 10px 20px rgba(16, 43, 74, 0.06);
+        }
+
+        .output-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+        }
+
+        .output-head h4 {
+          margin: 0;
+        }
+
+        .output-head span {
+          font-size: 11px;
+          letter-spacing: 0.03em;
+          text-transform: uppercase;
+          color: #1a4f84;
+          border: 1px solid #c5dbf6;
+          border-radius: 999px;
+          background: #edf5ff;
+          padding: 4px 9px;
         }
 
         pre {
           margin: 0;
           white-space: pre-wrap;
-          max-height: 260px;
+          max-height: 320px;
           overflow: auto;
-          border-radius: 11px;
-          border: 1px solid #dbe6f6;
-          background: #f7fbff;
-          padding: 10px;
+          border-radius: 12px;
+          border: 1px solid #d7e3f6;
+          background: #f4f8ff;
+          padding: 12px;
           font-family: 'IBM Plex Mono', Consolas, monospace;
           font-size: 12px;
+          line-height: 1.45;
+          color: #173b5f;
+        }
+
+        .output-link {
+          margin: 0;
+          font-size: 12px;
+          color: #36536f;
+          overflow-wrap: anywhere;
+        }
+
+        .output-link a {
+          color: #0f4f95;
+          font-weight: 700;
+          text-decoration: none;
         }
 
         .log-wrap {
@@ -930,12 +1809,42 @@ export default function AgenticWorkflowPage() {
             grid-template-columns: 1fr 1fr;
           }
 
+          .ado-targets {
+            grid-template-columns: 1fr;
+          }
+
+          .safe-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+
+          .workflow-stage-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+
+          .review-row {
+            grid-template-columns: 1fr;
+          }
+
+          .safe-checklists {
+            grid-template-columns: 1fr;
+          }
+
           .output-grid {
             grid-template-columns: 1fr;
           }
 
           .top {
             flex-direction: column;
+          }
+        }
+
+        @media (max-width: 720px) {
+          .workflow-stage-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .safe-grid {
+            grid-template-columns: 1fr;
           }
         }
       `}</style>

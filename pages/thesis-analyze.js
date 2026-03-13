@@ -3,6 +3,7 @@ import Link from 'next/link'
 
 export default function ThesisAnalyze() {
   const [data, setData] = useState(null)
+  const [requestError, setRequestError] = useState('')
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -11,12 +12,20 @@ export default function ThesisAnalyze() {
 
   async function load() {
     setLoading(true)
+    setRequestError('')
     try {
       const res = await fetch('/api/parse-thesis')
-      const json = await res.json()
+      const json = await res.json().catch(() => null)
+      if (!res.ok) {
+        setData(null)
+        setRequestError(json?.message || `Parse request failed with status ${res.status}.`)
+        return
+      }
+
       setData(json)
     } catch (err) {
-      setData({ error: String(err) })
+      setData(null)
+      setRequestError(`Could not reach thesis parser: ${String(err)}`)
     } finally {
       setLoading(false)
     }
@@ -29,9 +38,10 @@ export default function ThesisAnalyze() {
       <header className="hero">
         <div>
           <h1>Thesis Analysis</h1>
-          <p>Review extracted summary, abstract, table of contents, and detected chapter headings.</p>
+          <p>Review thesis extraction outputs used as supporting evidence alongside the primary Sprint Planning Workspace demo.</p>
         </div>
         <div className="heroLinks">
+          <Link href="/sprint-planning-workspace">Sprint Planning Workspace</Link>
           <Link href="/">Home</Link>
           <Link href="/thesis">Thesis Upload</Link>
           <button onClick={() => void load()} disabled={loading}>{loading ? 'Refreshing...' : 'Refresh'}</button>
@@ -39,17 +49,60 @@ export default function ThesisAnalyze() {
       </header>
 
       {loading ? <section className="panel"><p className="muted">Parsing thesis...</p></section> : null}
-      {!loading && !data ? <section className="panel"><p className="muted">No data.</p></section> : null}
-
-      {data && data.error ? (
+      {!loading && !requestError && !data ? (
         <section className="panel">
-          <h2>Error</h2>
-          <pre className="error">{data.error}</pre>
+          <p className="muted">Waiting for thesis analysis data.</p>
         </section>
       ) : null}
 
-      {data && !data.error ? (
+      {requestError ? (
         <section className="panel">
+          <h2>Analysis Request Error</h2>
+          <pre className="error">{requestError}</pre>
+          <p className="muted">Upload a thesis document and retry. If this persists, use the debug page in development mode.</p>
+        </section>
+      ) : null}
+
+      {data && data.status === 'empty' ? (
+        <section className="panel">
+          <h2>Ready For Upload</h2>
+          <p>{data.message || 'No thesis document has been analyzed yet.'}</p>
+          {(data.parserWarnings || []).length ? (
+            <ul>
+              {data.parserWarnings.map((warning, i) => <li key={i}>{warning}</li>)}
+            </ul>
+          ) : null}
+          <div className="actions">
+            <Link href="/thesis">Upload Thesis</Link>
+            <Link href="/sprint-planning-workspace">Open Sprint Planning Workspace</Link>
+          </div>
+        </section>
+      ) : null}
+
+      {data && data.status !== 'empty' ? (
+        <section className="panel">
+          <h2>Document Context</h2>
+          <p>
+            Source: <strong>{data.source || 'unknown'}</strong><br />
+            File: <strong>{data.fileName || 'unknown'}</strong><br />
+            Parsed characters: <strong>{typeof data.textLength === 'number' ? data.textLength : 0}</strong>
+          </p>
+
+          {data.source && data.source !== 'thesis-upload' ? (
+            <div className="caution">
+              This analysis used a fallback source. Upload thesis from Thesis Upload for thesis-scoped parsing.
+            </div>
+          ) : null}
+
+          {(data.parserWarnings || []).length ? (
+            <>
+              <h2>Parser Notes</h2>
+              <ul>
+                {data.parserWarnings.map((warning, i) => <li key={i}>{warning}</li>)}
+              </ul>
+            </>
+          ) : null}
+
           <h2>Summary</h2>
           <p>{data.summary || 'Not found'}</p>
 
@@ -171,10 +224,37 @@ export default function ThesisAnalyze() {
           font-size: 13px;
         }
 
+        .actions {
+          margin-top: 10px;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+
+        .actions :global(a) {
+          text-decoration: none;
+          color: #0d3a64;
+          border: 1px solid #c9dcf1;
+          border-radius: 999px;
+          background: #fff;
+          padding: 7px 13px;
+          font-weight: 700;
+        }
+
         .error {
           color: #991b1b;
           background: #fef2f2;
           border-color: #fecaca;
+        }
+
+        .caution {
+          border: 1px solid #fcd34d;
+          background: #fffbeb;
+          color: #92400e;
+          border-radius: 10px;
+          padding: 8px;
+          font-size: 12px;
+          margin-bottom: 6px;
         }
 
         .muted {

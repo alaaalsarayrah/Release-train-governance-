@@ -16,6 +16,8 @@ const DECISIONS = [
   { key: 'request_clarification', label: 'Request Clarification' }
 ]
 
+const AGENT_LABELS = AGENTS.reduce((acc, item) => ({ ...acc, [item.key]: item.label }), {})
+
 function toNumber(value, fallback = 0) {
   const num = Number(value)
   return Number.isFinite(num) ? num : fallback
@@ -29,6 +31,87 @@ function parseMaybe(value, fallback) {
   } catch {
     return fallback
   }
+}
+
+function toDecisionLabel(value) {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (!normalized) return 'Pending'
+  return normalized.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function trimText(value, limit = 130) {
+  const text = String(value || '').trim()
+  if (!text) return '-'
+  return text.length > limit ? `${text.slice(0, limit - 1)}...` : text
+}
+
+function summarizeOutputContext(output, parsed, planningBacklog = []) {
+  const prioritized = Array.isArray(parsed?.artifacts?.prioritized_items) ? parsed.artifacts.prioritized_items : []
+  if (prioritized.length) {
+    const ids = prioritized.slice(0, 3).map((item) => item.id).filter(Boolean)
+    return ids.length ? `Backlog focus: ${ids.join(', ')}` : 'Backlog focus available'
+  }
+
+  const estimates = Array.isArray(parsed?.artifacts?.estimation_table) ? parsed.artifacts.estimation_table : []
+  if (estimates.length) {
+    const ids = estimates.slice(0, 3).map((item) => item.id).filter(Boolean)
+    return ids.length ? `Estimated items: ${ids.join(', ')}` : 'Estimation context available'
+  }
+
+  const graphNodes = Array.isArray(parsed?.artifacts?.dependency_graph?.nodes)
+    ? parsed.artifacts.dependency_graph.nodes
+    : []
+  if (graphNodes.length) {
+    const ids = graphNodes.slice(0, 3).map((node) => node.id).filter(Boolean)
+    return ids.length ? `Dependency chain: ${ids.join(', ')}` : 'Dependency context available'
+  }
+
+  const impactedComponents = Array.isArray(parsed?.artifacts?.impacted_components)
+    ? parsed.artifacts.impacted_components
+    : []
+  if (impactedComponents.length) {
+    return `Architecture scope: ${impactedComponents.slice(0, 2).join(', ')}`
+  }
+
+  if (Array.isArray(parsed?.risks) && parsed.risks.length) {
+    return `Risk focus: ${trimText(parsed.risks[0], 90)}`
+  }
+
+  if (planningBacklog.length) {
+    const ids = planningBacklog.slice(0, 2).map((item) => item?.id).filter(Boolean)
+    if (ids.length) return `Backlog context: ${ids.join(', ')}`
+  }
+
+  return `${AGENT_LABELS[output.agent_key] || output.agent_key} contribution`
+}
+
+function outputSummary(snapshot, fallback = '-') {
+  const parsed = parseMaybe(snapshot, null)
+  if (!parsed || typeof parsed !== 'object') return fallback
+  return parsed.summary || fallback
+}
+
+function deriveAuditStatus(log) {
+  const action = String(log?.action || '').toLowerCase()
+
+  if (action.includes('decision recorded:')) {
+    if (action.includes('request_clarification')) return 'request_clarification'
+    if (action.includes('accept')) return 'accept'
+    if (action.includes('modify')) return 'modify'
+    if (action.includes('reject')) return 'reject'
+  }
+
+  if (action.includes('approved')) return 'approved'
+  if (action.includes('rejected')) return 'rejected'
+  if (action.includes('finalized')) return 'finalized'
+  if (action.includes('fail') || action.includes('error')) return 'error'
+  return 'info'
+}
+
+function summarizeAuditDetails(details, limit = 120) {
+  if (!details) return '-'
+  if (typeof details === 'string') return trimText(details, limit)
+  return trimText(JSON.stringify(details), limit)
 }
 
 function DependencyGraph({ graph }) {
@@ -105,6 +188,7 @@ export default function SprintPlanningWorkspace() {
   )
 
   const [running, setRunning] = useState(false)
+  const [demoDataBusy, setDemoDataBusy] = useState('')
   const [message, setMessage] = useState('')
   const [sessionId, setSessionId] = useState('')
   const [session, setSession] = useState(null)
@@ -112,6 +196,15 @@ export default function SprintPlanningWorkspace() {
   const [riskFilter, setRiskFilter] = useState('All')
   const [scenarioRuns, setScenarioRuns] = useState([])
   const [activeRun, setActiveRun] = useState(null)
+  const [recommendationStatusFilter, setRecommendationStatusFilter] = useState('All')
+  const [recommendationReviewerFilter, setRecommendationReviewerFilter] = useState('All')
+  const [auditLogs, setAuditLogs] = useState([])
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditSessionId, setAuditSessionId] = useState('')
+  const [auditStatusFilter, setAuditStatusFilter] = useState('All')
+  const [auditReviewerFilter, setAuditReviewerFilter] = useState('All')
+  const [auditFromDate, setAuditFromDate] = useState('')
+  const [auditToDate, setAuditToDate] = useState('')
   const [scenarioMetrics, setScenarioMetrics] = useState({
     recommendationsShown: 0,
     acceptedCount: 0,
@@ -128,6 +221,65 @@ export default function SprintPlanningWorkspace() {
   useEffect(() => {
     void bootstrap()
   }, [])
+
+  function syncWorkspaceFromSession(nextSession, teamRows = teams, sprintRows = sprints) {
+    if (!nextSession) return
+
+    const context = parseMaybe(nextSession.planning_context, {}) || {}
+
+    if (nextSession.team_name) setSelectedTeam(nextSession.team_name)
+    if (nextSession.sprint_name) setSelectedSprint(nextSession.sprint_name)
+
+    const contextCapacity = Number(context.capacityPoints)
+    if (Number.isFinite(contextCapacity) && contextCapacity > 0) {
+      setCapacityPoints(contextCapacity)
+    }
+
+    const contextBacklog = Array.isArray(context.backlogItems) ? context.backlogItems : []
+    if (contextBacklog.length) {
+      const selectedIds = contextBacklog
+        .map((item) => item?.id)
+        .filter(Boolean)
+
+      if (selectedIds.length) {
+        setSelectedBacklogIds(selectedIds)
+      }
+    }
+
+    if (teamRows.length && !teamRows.find((row) => row.name === nextSession.team_name)) {
+      setSelectedTeam(teamRows[0]?.name || '')
+    }
+
+    if (sprintRows.length && !sprintRows.find((row) => row.name === nextSession.sprint_name)) {
+      setSelectedSprint(sprintRows[0]?.name || '')
+    }
+  }
+
+  async function hydrateLatestSession(teamRows = teams, sprintRows = sprints) {
+    try {
+      const res = await fetch('/api/planning/session?limit=25')
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.message || 'Failed to load planning sessions')
+
+      const sessions = Array.isArray(json.sessions) ? json.sessions : []
+      if (!sessions.length) {
+        setSessionId('')
+        setSession(null)
+        return false
+      }
+
+      const preferred = sessions.find((row) => String(row.id).startsWith('PLAN-THESIS-DEMO'))
+        || sessions.find((row) => String(row.status || '').toLowerCase() === 'finalized')
+        || sessions[0]
+
+      if (!preferred?.id) return false
+      await refreshSession(preferred.id, { syncContext: true, teamRows, sprintRows })
+      return true
+    } catch (err) {
+      setMessage(`Failed to hydrate latest session: ${String(err?.message || err)}`)
+      return false
+    }
+  }
 
   async function bootstrap() {
     try {
@@ -148,8 +300,39 @@ export default function SprintPlanningWorkspace() {
       setScenarioRuns(runJson.runs || [])
 
       await loadBacklog('local')
+      await hydrateLatestSession(teamRows, sprintRows)
     } catch (err) {
       setMessage(`Failed to initialize workspace: ${String(err?.message || err)}`)
+    }
+  }
+
+  async function runDemoDataAction(action) {
+    if (action === 'reset') {
+      const confirmed = window.confirm('Reset demo data to default baseline? This removes planning and evaluation demo records.')
+      if (!confirmed) return
+    }
+
+    setDemoDataBusy(action)
+    setMessage('')
+    try {
+      const res = await fetch('/api/demo-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, profile: 'thesis-demo' })
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.message || 'Demo data action failed')
+
+      await bootstrap()
+      setMessage(
+        action === 'load'
+          ? 'Thesis demo data loaded. Workspace hydrated with the latest seeded planning session.'
+          : 'Demo data reset to baseline defaults.'
+      )
+    } catch (err) {
+      setMessage(`Demo data action failed: ${String(err?.message || err)}`)
+    } finally {
+      setDemoDataBusy('')
     }
   }
 
@@ -207,6 +390,228 @@ export default function SprintPlanningWorkspace() {
     }
   }, [session?.estimates, capacityPoints])
 
+  const planningContextBacklog = useMemo(() => {
+    const context = parseMaybe(session?.planning_context, {})
+    return Array.isArray(context?.backlogItems) ? context.backlogItems : []
+  }, [session?.planning_context])
+
+  const parsedOutputs = useMemo(() => {
+    return (session?.outputs || []).map((output) => ({
+      ...output,
+      parsed: parseMaybe(output.output_json, {})
+    }))
+  }, [session?.outputs])
+
+  const outputByKey = useMemo(() => {
+    return parsedOutputs.reduce((acc, output) => {
+      acc[output.agent_key] = output
+      return acc
+    }, {})
+  }, [parsedOutputs])
+
+  const latestDecisionByOutput = useMemo(() => {
+    const byOutputId = {}
+    const byAgentKey = {}
+
+    for (const decision of session?.decisions || []) {
+      const decisionTime = new Date(decision?.created_at || 0).getTime() || 0
+      const decisionId = Number(decision?.id || 0)
+
+      if (decision?.agent_output_id) {
+        const key = String(decision.agent_output_id)
+        const existing = byOutputId[key]
+        const existingTime = new Date(existing?.created_at || 0).getTime() || 0
+        const existingId = Number(existing?.id || 0)
+        if (!existing || decisionTime > existingTime || (decisionTime === existingTime && decisionId > existingId)) {
+          byOutputId[key] = decision
+        }
+      }
+
+      if (decision?.agent_key) {
+        const key = String(decision.agent_key)
+        const existing = byAgentKey[key]
+        const existingTime = new Date(existing?.created_at || 0).getTime() || 0
+        const existingId = Number(existing?.id || 0)
+        if (!existing || decisionTime > existingTime || (decisionTime === existingTime && decisionId > existingId)) {
+          byAgentKey[key] = decision
+        }
+      }
+    }
+
+    return { byOutputId, byAgentKey }
+  }, [session?.decisions])
+
+  const recommendationRows = useMemo(() => {
+    const rows = []
+
+    for (const output of parsedOutputs) {
+      const parsed = output.parsed || {}
+      const recommendations = Array.isArray(parsed.recommendations) ? parsed.recommendations : []
+      const decision = latestDecisionByOutput.byOutputId[String(output.id)] || latestDecisionByOutput.byAgentKey[output.agent_key] || null
+
+      recommendations.forEach((recommendation, index) => {
+        rows.push({
+          id: `${output.id}-rec-${index}`,
+          recommendation,
+          agentKey: output.agent_key,
+          agentLabel: AGENT_LABELS[output.agent_key] || output.agent_key,
+          rationale: parsed.rationale || output.summary || '-',
+          context: summarizeOutputContext(output, parsed, planningContextBacklog),
+          status: decision?.decision || '',
+          humanRationale: decision?.human_rationale || '',
+          actor: decision?.actor || '',
+          createdAt: decision?.created_at || ''
+        })
+      })
+    }
+
+    return rows
+  }, [parsedOutputs, latestDecisionByOutput, planningContextBacklog])
+
+  const decisionSummary = useMemo(() => {
+    const counts = { pending: 0, accept: 0, modify: 0, reject: 0, request_clarification: 0 }
+
+    for (const output of parsedOutputs) {
+      const decision = latestDecisionByOutput.byOutputId[String(output.id)] || latestDecisionByOutput.byAgentKey[output.agent_key] || null
+      const key = String(decision?.decision || '').toLowerCase()
+      if (!key) {
+        counts.pending += 1
+      } else if (Object.prototype.hasOwnProperty.call(counts, key)) {
+        counts[key] += 1
+      } else {
+        counts.pending += 1
+      }
+    }
+
+    return counts
+  }, [parsedOutputs, latestDecisionByOutput])
+
+  const specialistContributions = useMemo(() => {
+    const productOutput = outputByKey.product_owner_assistant
+    const estimateOutput = outputByKey.estimation_advisor
+    const dependencyOutput = outputByKey.dependency_analyst
+    const architectureOutput = outputByKey.architect_advisor
+    const riskOutput = outputByKey.risk_analyst
+    const architectureNotes = Array.isArray(session?.architectureNotes) ? session.architectureNotes : []
+
+    const dependencyHigh = (session?.dependencies || []).filter((item) => String(item.severity || '').toLowerCase() === 'high').length
+    const riskHigh = (session?.risks || []).filter((item) => String(item.severity || '').toLowerCase() === 'high').length
+    const sprintGoal = trimText(productOutput?.parsed?.summary || productOutput?.summary || session?.title || '-', 140)
+
+    return [
+      {
+        area: 'Backlog Quality',
+        source: AGENT_LABELS.product_owner_assistant,
+        evidence: trimText(productOutput?.parsed?.summary || productOutput?.summary || 'No backlog quality analysis yet.'),
+        detail: `${Array.isArray(productOutput?.parsed?.recommendations) ? productOutput.parsed.recommendations.length : 0} recommendations`
+      },
+      {
+        area: 'Estimates',
+        source: AGENT_LABELS.estimation_advisor,
+        evidence: trimText(estimateOutput?.parsed?.summary || estimateOutput?.summary || 'No estimation analysis yet.'),
+        detail: `AI ${estimationCapacity.totalAi} / Final ${estimationCapacity.totalFinal} points`
+      },
+      {
+        area: 'Dependencies',
+        source: AGENT_LABELS.dependency_analyst,
+        evidence: trimText(dependencyOutput?.parsed?.summary || dependencyOutput?.summary || 'No dependency analysis yet.'),
+        detail: `${session?.dependencies?.length || 0} dependencies, ${dependencyHigh} high severity`
+      },
+      {
+        area: 'Risks',
+        source: AGENT_LABELS.risk_analyst,
+        evidence: trimText(riskOutput?.parsed?.summary || riskOutput?.summary || 'No risk analysis yet.'),
+        detail: `${session?.risks?.length || 0} risks, ${riskHigh} high severity`
+      },
+      {
+        area: 'Architecture and Solution Guidance',
+        source: AGENT_LABELS.architect_advisor,
+        evidence: trimText(architectureOutput?.parsed?.summary || architectureOutput?.summary || 'No architecture guidance yet.'),
+        detail: architectureNotes.length
+          ? `${architectureNotes.length} architecture note records`
+          : `Sprint intent: ${sprintGoal}`
+      }
+    ]
+  }, [outputByKey, session?.architectureNotes, session?.dependencies, session?.risks, session?.title, estimationCapacity])
+
+  const decisionLedgerRows = useMemo(() => {
+    return (session?.decisions || [])
+      .slice()
+      .sort((a, b) => {
+        const aTime = new Date(a?.created_at || 0).getTime() || 0
+        const bTime = new Date(b?.created_at || 0).getTime() || 0
+        return bTime - aTime
+      })
+  }, [session?.decisions])
+
+  const recommendationReviewerOptions = useMemo(() => {
+    return Array.from(new Set(recommendationRows.map((row) => String(row.actor || '').trim()).filter(Boolean))).sort()
+  }, [recommendationRows])
+
+  const filteredRecommendationRows = useMemo(() => {
+    return recommendationRows.filter((row) => {
+      const status = String(row.status || 'pending').toLowerCase()
+      const actor = String(row.actor || '').trim()
+
+      if (recommendationStatusFilter !== 'All' && status !== recommendationStatusFilter) return false
+      if (recommendationReviewerFilter !== 'All' && actor !== recommendationReviewerFilter) return false
+      return true
+    })
+  }, [recommendationRows, recommendationStatusFilter, recommendationReviewerFilter])
+
+  const reviewLoopOverview = useMemo(() => {
+    const reruns = auditLogs.filter((log) => String(log.action || '').toLowerCase().includes('re-run')).length
+    return {
+      generated: parsedOutputs.length,
+      decided: Math.max(0, parsedOutputs.length - decisionSummary.pending),
+      pending: decisionSummary.pending,
+      clarifications: decisionSummary.request_clarification,
+      reruns,
+      finalizedBy: session?.finalized_by || '-',
+      finalizedAt: session?.finalized_at ? new Date(session.finalized_at).toLocaleString() : '-'
+    }
+  }, [auditLogs, parsedOutputs.length, decisionSummary, session?.finalized_by, session?.finalized_at])
+
+  const auditReviewerOptions = useMemo(() => {
+    return Array.from(new Set(auditLogs.map((row) => String(row.actor || '').trim()).filter(Boolean))).sort()
+  }, [auditLogs])
+
+  const auditStatusOptions = useMemo(() => {
+    return Array.from(new Set(auditLogs.map((row) => deriveAuditStatus(row)))).sort()
+  }, [auditLogs])
+
+  const filteredAuditLogs = useMemo(() => {
+    const fromMs = auditFromDate ? new Date(`${auditFromDate}T00:00:00`).getTime() : null
+    const toMs = auditToDate ? new Date(`${auditToDate}T23:59:59`).getTime() : null
+
+    return auditLogs.filter((row) => {
+      if (auditSessionId && String(row.br_id || '').trim() !== String(auditSessionId).trim()) return false
+
+      const status = deriveAuditStatus(row)
+      if (auditStatusFilter !== 'All' && status !== auditStatusFilter) return false
+
+      const actor = String(row.actor || '').trim()
+      if (auditReviewerFilter !== 'All' && actor !== auditReviewerFilter) return false
+
+      if (fromMs || toMs) {
+        const rowMs = new Date(row.created_at || 0).getTime()
+        if (Number.isFinite(fromMs) && rowMs < fromMs) return false
+        if (Number.isFinite(toMs) && rowMs > toMs) return false
+      }
+
+      return true
+    })
+  }, [auditLogs, auditSessionId, auditStatusFilter, auditReviewerFilter, auditFromDate, auditToDate])
+
+  const auditCsvHref = useMemo(() => {
+    const params = new URLSearchParams({ format: 'csv' })
+    if (auditSessionId) params.set('brId', auditSessionId)
+    if (auditReviewerFilter !== 'All') params.set('actor', auditReviewerFilter)
+    if (auditFromDate) params.set('from', auditFromDate)
+    if (auditToDate) params.set('to', auditToDate)
+    return `/api/agentic/audit-logs?${params.toString()}`
+  }, [auditSessionId, auditReviewerFilter, auditFromDate, auditToDate])
+
   useEffect(() => {
     const next = {}
     for (const row of session?.estimates || []) {
@@ -214,6 +619,21 @@ export default function SprintPlanningWorkspace() {
     }
     setFinalEstimateEdits(next)
   }, [session?.estimates])
+
+  useEffect(() => {
+    if (!sessionId) {
+      setAuditSessionId('')
+      setAuditLogs([])
+      return
+    }
+
+    setAuditSessionId(sessionId)
+    setAuditStatusFilter('All')
+    setAuditReviewerFilter('All')
+    setAuditFromDate('')
+    setAuditToDate('')
+    void loadAuditTimeline(sessionId, { reviewer: 'All', from: '', to: '' })
+  }, [sessionId])
 
   function buildPlanningContext() {
     return {
@@ -258,6 +678,7 @@ export default function SprintPlanningWorkspace() {
       if (!res.ok) throw new Error(json.message || 'Planning run failed')
       setSessionId(json.sessionId)
       setSession(json.session)
+      syncWorkspaceFromSession(json.session)
       setMessage('Planning session created and selected agents executed successfully.')
     } catch (err) {
       setMessage(`Planning run failed: ${String(err?.message || err)}`)
@@ -266,13 +687,17 @@ export default function SprintPlanningWorkspace() {
     }
   }
 
-  async function refreshSession(id = sessionId) {
+  async function refreshSession(id = sessionId, options = {}) {
     if (!id) return
     try {
       const res = await fetch(`/api/planning/session?sessionId=${encodeURIComponent(id)}`)
       const json = await res.json()
       if (!res.ok) throw new Error(json.message || 'Failed to refresh session')
+      setSessionId(id)
       setSession(json.session)
+      if (options.syncContext !== false) {
+        syncWorkspaceFromSession(json.session, options.teamRows || teams, options.sprintRows || sprints)
+      }
     } catch (err) {
       setMessage(`Session refresh failed: ${String(err?.message || err)}`)
     }
@@ -294,6 +719,7 @@ export default function SprintPlanningWorkspace() {
       const json = await res.json()
       if (!res.ok) throw new Error(json.message || 'Agent run failed')
       setSession(json.session)
+      await loadAuditTimeline(sessionId)
       setMessage(`${agentKey} re-run completed.`)
     } catch (err) {
       setMessage(`Agent run failed: ${String(err?.message || err)}`)
@@ -339,6 +765,7 @@ export default function SprintPlanningWorkspace() {
       const json = await res.json()
       if (!res.ok) throw new Error(json.message || 'Decision save failed')
       setSession(json.session)
+      await loadAuditTimeline(sessionId)
       setMessage(`Decision saved: ${decision}`)
     } catch (err) {
       setMessage(`Decision save failed: ${String(err?.message || err)}`)
@@ -356,6 +783,7 @@ export default function SprintPlanningWorkspace() {
       const json = await res.json()
       if (!res.ok) throw new Error(json.message || 'Finalize failed')
       setSession(json.session)
+      await loadAuditTimeline(sessionId)
       setMessage('Sprint planning session finalized.')
     } catch (err) {
       setMessage(`Finalize failed: ${String(err?.message || err)}`)
@@ -388,9 +816,45 @@ export default function SprintPlanningWorkspace() {
       const json = await res.json()
       if (!res.ok) throw new Error(json.message || 'Failed to save estimate overrides')
       await refreshSession(sessionId)
+      await loadAuditTimeline(sessionId)
       setMessage('Estimation overrides saved.')
     } catch (err) {
       setMessage(`Estimate override save failed: ${String(err?.message || err)}`)
+    }
+  }
+
+  async function loadAuditTimeline(targetSessionId = auditSessionId, overrides = {}) {
+    const nextSessionId = String(targetSessionId || '').trim()
+    if (!nextSessionId) {
+      setAuditLogs([])
+      return
+    }
+
+    const reviewer = overrides.reviewer ?? auditReviewerFilter
+    const from = overrides.from ?? auditFromDate
+    const to = overrides.to ?? auditToDate
+
+    setAuditLoading(true)
+    try {
+      const params = new URLSearchParams({
+        brId: nextSessionId,
+        limit: '300'
+      })
+
+      if (reviewer && reviewer !== 'All') params.set('actor', reviewer)
+      if (from) params.set('from', from)
+      if (to) params.set('to', to)
+
+      const res = await fetch(`/api/agentic/audit-logs?${params.toString()}`)
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.message || 'Failed to load audit timeline')
+
+      setAuditSessionId(nextSessionId)
+      setAuditLogs(Array.isArray(json.logs) ? json.logs : [])
+    } catch (err) {
+      setMessage(`Audit timeline load failed: ${String(err?.message || err)}`)
+    } finally {
+      setAuditLoading(false)
     }
   }
 
@@ -440,9 +904,13 @@ export default function SprintPlanningWorkspace() {
     }
   }
 
-  const dependencyOutput = (session?.outputs || [])
-    .map((o) => ({ ...o, output_json: parseMaybe(o.output_json, {}) }))
-    .find((o) => o.agent_key === 'dependency_analyst')
+  const productOutput = outputByKey.product_owner_assistant || null
+  const dependencyOutput = outputByKey.dependency_analyst || null
+  const architectureOutput = outputByKey.architect_advisor || null
+  const architectureNotes = Array.isArray(session?.architectureNotes) ? session.architectureNotes : []
+  const sprintGoalSummary = trimText(productOutput?.parsed?.summary || productOutput?.summary || session?.title || '-', 160)
+  const dependencyHighCount = (session?.dependencies || []).filter((item) => String(item.severity || '').toLowerCase() === 'high').length
+  const riskHighCount = (session?.risks || []).filter((item) => String(item.severity || '').toLowerCase() === 'high').length
 
   const filteredRisks = (session?.risks || []).filter((risk) => {
     if (riskFilter === 'All') return true
@@ -453,21 +921,42 @@ export default function SprintPlanningWorkspace() {
     <main className="shell">
       <header className="top">
         <div>
-          <h1>Sprint Planning Workspace</h1>
+          <h1>SAFe Sprint Planning Workspace (Thesis Prototype)</h1>
           <p>
-            Thesis-aligned multi-agent SAFe planning workspace with orchestrated specialist agents,
-            explainability, human override, and evaluation evidence capture.
+            Primary thesis workspace for AI specialist planning support with capacity awareness,
+            dependency and risk visibility, architecture guidance, and human governance decisions.
           </p>
         </div>
         <div className="links">
-          <Link href="/">Home</Link>
-          <Link href="/dashboard">Dashboard</Link>
-          <Link href="/agentic-workflow">Workflow Console</Link>
+          <Link href="/thesis-demo">Thesis Demo</Link>
+          <Link href="/conceptual-framework">Conceptual Framework</Link>
           <Link href="/evaluation">Evaluation</Link>
+          <Link href="/planning-export-center">Export Center</Link>
+          <Link href="/agentic-workflow">Supporting Workflow</Link>
+          <Link href="/dashboard">Supporting Dashboard</Link>
+          <Link href="/">Home</Link>
         </div>
       </header>
 
       {message ? <div className="banner">{message}</div> : null}
+
+      <section className="panel">
+        <h2>Demo Data Shortcuts</h2>
+        <p className="muted">
+          Keep this workspace presentation-ready by loading deterministic thesis data, or reset to the default baseline when needed.
+        </p>
+        <div className="inline">
+          <button onClick={() => void runDemoDataAction('load')} disabled={Boolean(demoDataBusy)}>
+            {demoDataBusy === 'load' ? 'Loading...' : 'Load Thesis Demo Data'}
+          </button>
+          <button className="secondary" onClick={() => void runDemoDataAction('reset')} disabled={Boolean(demoDataBusy)}>
+            {demoDataBusy === 'reset' ? 'Resetting...' : 'Reset Demo Data'}
+          </button>
+          <button className="ghost" onClick={() => void hydrateLatestSession()} disabled={Boolean(demoDataBusy)}>
+            Refresh Latest Session
+          </button>
+        </div>
+      </section>
 
       <section className="panel twoCol">
         <article>
@@ -569,42 +1058,367 @@ export default function SprintPlanningWorkspace() {
             <button onClick={() => void finalizeSession()} disabled={!sessionId}>Finalize Sprint Summary</button>
           </div>
 
-          {sessionId ? <p className="muted">Session ID: {sessionId}</p> : null}
+          {sessionId ? <p className="muted">Session ID: {sessionId}</p> : (
+            <p className="muted">No session loaded yet. Load thesis demo data or run selected agents to populate outputs and exports.</p>
+          )}
         </article>
 
         <article>
-          <h2>5) Export Actions</h2>
-          {!sessionId ? <p className="muted">Run a planning session to enable exports.</p> : (
-            <div className="exportLinks">
-              <a href={`/api/planning/export?sessionId=${encodeURIComponent(sessionId)}&type=sprint-summary&format=json`} target="_blank" rel="noreferrer">Sprint Summary (JSON)</a>
-              <a href={`/api/planning/export?sessionId=${encodeURIComponent(sessionId)}&type=sprint-summary&format=csv`} target="_blank" rel="noreferrer">Sprint Summary (CSV)</a>
-              <a href={`/api/planning/export?sessionId=${encodeURIComponent(sessionId)}&type=dependencies&format=csv`} target="_blank" rel="noreferrer">Dependency Summary (CSV)</a>
-              <a href={`/api/planning/export?sessionId=${encodeURIComponent(sessionId)}&type=risks&format=csv`} target="_blank" rel="noreferrer">Risk Register (CSV)</a>
-              <a href={`/api/planning/export?sessionId=${encodeURIComponent(sessionId)}&type=architecture&format=json`} target="_blank" rel="noreferrer">Architecture Note (JSON)</a>
-              <a href={`/api/planning/export?sessionId=${encodeURIComponent(sessionId)}&type=estimation&format=csv`} target="_blank" rel="noreferrer">Estimation Comparison (CSV)</a>
-              <a href={`/api/planning/export?sessionId=${encodeURIComponent(sessionId)}&type=human-decisions&format=csv`} target="_blank" rel="noreferrer">Human Override Logs (CSV)</a>
-              <a href="/api/planning/export?type=evaluation-metrics&format=csv" target="_blank" rel="noreferrer">Evaluation Metrics (CSV)</a>
-            </div>
+          <h2>5) Export Intelligence Hub</h2>
+          {!sessionId ? <p className="muted">Run a planning session to unlock export insights and packaged artifacts.</p> : (
+            <>
+              <div className="exportDeck">
+                <article>
+                  <strong>Executive Pack</strong>
+                  <p>Sprint summary, risks, and dependency highlights for steering review.</p>
+                  <a href={`/api/planning/export?sessionId=${encodeURIComponent(sessionId)}&type=sprint-summary&format=json`} target="_blank" rel="noreferrer">Open JSON Summary</a>
+                </article>
+                <article>
+                  <strong>Delivery Controls</strong>
+                  <p>CSV package for dependencies, risks, and estimation deltas.</p>
+                  <a href={`/api/planning/export?sessionId=${encodeURIComponent(sessionId)}&type=dependencies&format=csv`} target="_blank" rel="noreferrer">Download Delivery CSV</a>
+                </article>
+                <article>
+                  <strong>Governance Trace</strong>
+                  <p>Human decision overrides and evaluation metrics for thesis evidence.</p>
+                  <a href={`/api/planning/export?sessionId=${encodeURIComponent(sessionId)}&type=human-decisions&format=csv`} target="_blank" rel="noreferrer">Download Governance CSV</a>
+                </article>
+              </div>
+              <div className="inline">
+                <Link href={`/planning-export-center?sessionId=${encodeURIComponent(sessionId)}`}>
+                  Open Export Center Dashboard
+                </Link>
+                <a href={`/api/planning/export?sessionId=${encodeURIComponent(sessionId)}&type=sprint-summary&format=csv`} target="_blank" rel="noreferrer">Sprint Summary CSV</a>
+                <a href="/api/planning/export?type=evaluation-metrics&format=csv" target="_blank" rel="noreferrer">Evaluation Metrics CSV</a>
+              </div>
+            </>
           )}
         </article>
       </section>
 
       <section className="panel">
+        <h2>5.1) Explainability Snapshot</h2>
+        {!session ? (
+          <p className="muted">Run or load a session to surface AI contribution and human governance evidence.</p>
+        ) : (
+          <>
+            <div className="snapshotGrid">
+              <article>
+                <h3>Capacity Summary</h3>
+                <p>Capacity: {estimationCapacity.capacity} points</p>
+                <p>AI commitment: {estimationCapacity.totalAi} points</p>
+                <p>Final human commitment: {estimationCapacity.totalFinal} points</p>
+              </article>
+              <article>
+                <h3>Sprint Goal Summary</h3>
+                <p>{sprintGoalSummary}</p>
+              </article>
+              <article>
+                <h3>Estimate Comparison</h3>
+                <p>Rows compared: {session?.estimates?.length || 0}</p>
+                <p>AI delta: {estimationCapacity.aiDelta}</p>
+                <p>Final delta: {estimationCapacity.finalDelta}</p>
+              </article>
+              <article>
+                <h3>Dependency Findings</h3>
+                <p>Total dependencies: {session?.dependencies?.length || 0}</p>
+                <p>High severity dependencies: {dependencyHighCount}</p>
+                <p>Graph nodes: {dependencyOutput?.parsed?.artifacts?.dependency_graph?.nodes?.length || 0}</p>
+              </article>
+              <article>
+                <h3>Risk Findings</h3>
+                <p>Total risks: {session?.risks?.length || 0}</p>
+                <p>High severity risks: {riskHighCount}</p>
+                <p>Visible in current filter: {filteredRisks.length}</p>
+              </article>
+              <article>
+                <h3>Architecture Guidance</h3>
+                <p>Architecture notes: {architectureNotes.length}</p>
+                <p>{trimText(architectureOutput?.parsed?.summary || architectureOutput?.summary || 'No architecture summary available.', 120)}</p>
+              </article>
+              <article>
+                <h3>AI Contribution Coverage</h3>
+                <p>Agent outputs: {parsedOutputs.length}</p>
+                <p>Major recommendations: {recommendationRows.length}</p>
+              </article>
+              <article>
+                <h3>Human Decision Coverage</h3>
+                <p>Pending outputs: {decisionSummary.pending}</p>
+                <p>Accepted: {decisionSummary.accept}</p>
+                <p>Modified: {decisionSummary.modify}</p>
+                <p>Rejected: {decisionSummary.reject}</p>
+              </article>
+            </div>
+
+            <h3>Specialist Contribution Map</h3>
+            <div className="contribGrid">
+              {specialistContributions.map((item) => (
+                <article key={item.area} className="contribCard">
+                  <div className="cardHead">
+                    <strong>{item.area}</strong>
+                    <span>{item.source}</span>
+                  </div>
+                  <p>{item.evidence}</p>
+                  <p className="muted">{item.detail}</p>
+                </article>
+              ))}
+            </div>
+          </>
+        )}
+      </section>
+
+      <section className="panel">
+        <h2>5.2) Major Recommendations and Decision Status</h2>
+        <p className="muted">Review recommendations with explicit status, reviewer, decision timestamp, and rationale traceability.</p>
+        <div className="inline governanceFilters">
+          <label>
+            Status
+            <select value={recommendationStatusFilter} onChange={(e) => setRecommendationStatusFilter(e.target.value)}>
+              <option value="All">All</option>
+              <option value="pending">Pending</option>
+              <option value="accept">Accept</option>
+              <option value="modify">Modify</option>
+              <option value="reject">Reject</option>
+              <option value="request_clarification">Request Clarification</option>
+            </select>
+          </label>
+          <label>
+            Reviewer
+            <select value={recommendationReviewerFilter} onChange={(e) => setRecommendationReviewerFilter(e.target.value)}>
+              <option value="All">All</option>
+              {recommendationReviewerOptions.map((actor) => <option key={actor} value={actor}>{actor}</option>)}
+            </select>
+          </label>
+        </div>
+
+        {!recommendationRows.length ? (
+          <p className="muted">No recommendations available yet. Run selected agents to generate recommendation evidence.</p>
+        ) : (
+          <div className="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Recommendation</th>
+                  <th>Agent Source</th>
+                  <th>Rationale</th>
+                  <th>Related Backlog or Context</th>
+                  <th>Status</th>
+                  <th>Reviewer</th>
+                  <th>Decision Timestamp</th>
+                  <th>Human Rationale</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredRecommendationRows.map((row) => {
+                  const statusClass = row.status ? `status-${String(row.status).toLowerCase()}` : 'status-pending'
+                  return (
+                    <tr key={row.id}>
+                      <td>{row.recommendation}</td>
+                      <td>{row.agentLabel}</td>
+                      <td>{trimText(row.rationale, 140)}</td>
+                      <td>{trimText(row.context, 120)}</td>
+                      <td>
+                        <span className={`statusTag ${statusClass}`}>{toDecisionLabel(row.status)}</span>
+                      </td>
+                      <td>{row.actor || '-'}</td>
+                      <td>{row.createdAt ? new Date(row.createdAt).toLocaleString() : '-'}</td>
+                      <td>{row.humanRationale ? trimText(row.humanRationale, 110) : '-'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {recommendationRows.length && !filteredRecommendationRows.length ? (
+          <p className="muted">No recommendation records match the current governance filters.</p>
+        ) : null}
+      </section>
+
+      <section className="panel">
+        <h2>5.3) Human Decision Ledger</h2>
+        {!decisionLedgerRows.length ? (
+          <p className="muted">No human decisions captured yet. Use the decision actions in agent output cards.</p>
+        ) : (
+          <div className="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Agent</th>
+                  <th>Decision</th>
+                  <th>Actor</th>
+                  <th>Before</th>
+                  <th>After</th>
+                  <th>Rationale</th>
+                </tr>
+              </thead>
+              <tbody>
+                {decisionLedgerRows.slice(0, 20).map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.created_at ? new Date(item.created_at).toLocaleString() : '-'}</td>
+                    <td>{AGENT_LABELS[item.agent_key] || item.agent_key || '-'}</td>
+                    <td>
+                      <span className={`statusTag status-${String(item.decision || 'pending').toLowerCase()}`}>
+                        {toDecisionLabel(item.decision)}
+                      </span>
+                    </td>
+                    <td>{item.actor || '-'}</td>
+                    <td>{trimText(outputSummary(item.original_output_json), 90)}</td>
+                    <td>{trimText(outputSummary(item.final_output_json), 90)}</td>
+                    <td>{trimText(item.human_rationale || '-', 90)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="panel">
+        <h2>5.4) Governance Review Loop and Audit Timeline</h2>
+        <p className="muted">
+          Formal oversight view showing review-loop progression, accountable actors, and timestamped audit evidence for thesis reporting.
+        </p>
+
+        <div className="governanceLoopGrid">
+          <article className="governanceCard">
+            <h3>Review Loop Progress</h3>
+            <p>Generated recommendations: {reviewLoopOverview.generated}</p>
+            <p>Decisions completed: {reviewLoopOverview.decided}</p>
+            <p>Pending review: {reviewLoopOverview.pending}</p>
+            <p>Clarification loops: {reviewLoopOverview.clarifications}</p>
+          </article>
+          <article className="governanceCard">
+            <h3>Governance Activity</h3>
+            <p>Audit events loaded: {auditLogs.length}</p>
+            <p>Agent re-runs: {reviewLoopOverview.reruns}</p>
+            <p>Finalized by: {reviewLoopOverview.finalizedBy}</p>
+            <p>Finalized at: {reviewLoopOverview.finalizedAt}</p>
+          </article>
+        </div>
+
+        <div className="inline governanceFilters">
+          <label>
+            Session ID
+            <input
+              value={auditSessionId}
+              onChange={(e) => setAuditSessionId(e.target.value)}
+              placeholder="PLAN-..."
+            />
+          </label>
+          <label>
+            Status
+            <select value={auditStatusFilter} onChange={(e) => setAuditStatusFilter(e.target.value)}>
+              <option value="All">All</option>
+              {auditStatusOptions.map((status) => (
+                <option key={status} value={status}>{toDecisionLabel(status)}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Reviewer
+            <select value={auditReviewerFilter} onChange={(e) => setAuditReviewerFilter(e.target.value)}>
+              <option value="All">All</option>
+              {auditReviewerOptions.map((actor) => <option key={actor} value={actor}>{actor}</option>)}
+            </select>
+          </label>
+          <label>
+            From Date
+            <input type="date" value={auditFromDate} onChange={(e) => setAuditFromDate(e.target.value)} />
+          </label>
+          <label>
+            To Date
+            <input type="date" value={auditToDate} onChange={(e) => setAuditToDate(e.target.value)} />
+          </label>
+        </div>
+
+        <div className="inline">
+          <button onClick={() => void loadAuditTimeline(auditSessionId)}>Load Audit Timeline</button>
+          <button
+            className="ghost"
+            onClick={() => {
+              setAuditStatusFilter('All')
+              setAuditReviewerFilter('All')
+              setAuditFromDate('')
+              setAuditToDate('')
+              void loadAuditTimeline(auditSessionId, { reviewer: 'All', from: '', to: '' })
+            }}
+          >
+            Reset Filters
+          </button>
+          <a href={auditCsvHref} target="_blank" rel="noreferrer">Export Audit CSV</a>
+        </div>
+
+        {auditLoading ? <p className="muted">Loading audit timeline...</p> : null}
+        {!auditLoading && !filteredAuditLogs.length ? (
+          <p className="muted">No audit entries match the current governance filters.</p>
+        ) : null}
+
+        {filteredAuditLogs.length ? (
+          <div className="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Stage</th>
+                  <th>Status</th>
+                  <th>Reviewer or Actor</th>
+                  <th>Action</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredAuditLogs.slice(0, 120).map((row) => {
+                  const status = deriveAuditStatus(row)
+                  return (
+                    <tr key={row.id}>
+                      <td>{row.created_at ? new Date(row.created_at).toLocaleString() : '-'}</td>
+                      <td>{row.stage || '-'}</td>
+                      <td><span className={`statusTag status-${status}`}>{toDecisionLabel(status)}</span></td>
+                      <td>{row.actor || '-'}</td>
+                      <td>{row.action || '-'}</td>
+                      <td>{summarizeAuditDetails(row.details)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="panel">
         <h2>6) Agent Output Panels + Human Decisions</h2>
-        {!(session?.outputs || []).length ? (
+        {!parsedOutputs.length ? (
           <p className="muted">No outputs yet. Run selected planning agents.</p>
         ) : (
           <div className="cards">
-            {session.outputs.map((output) => {
-              const parsed = parseMaybe(output.output_json, {})
+            {parsedOutputs.map((output) => {
+              const parsed = output.parsed || {}
+              const decision = latestDecisionByOutput.byOutputId[String(output.id)] || latestDecisionByOutput.byAgentKey[output.agent_key] || null
+              const decisionKey = String(decision?.decision || '').toLowerCase()
+              const decisionClass = decisionKey ? `status-${decisionKey}` : 'status-pending'
+              const contextText = summarizeOutputContext(output, parsed, planningContextBacklog)
+
               return (
                 <article key={output.id} className="card">
                   <div className="cardHead">
-                    <strong>{output.agent_key}</strong>
-                    <span>Confidence: {toNumber(parsed.confidence, 0).toFixed(2)}</span>
+                    <strong>{AGENT_LABELS[output.agent_key] || output.agent_key}</strong>
+                    <span className={`statusTag ${decisionClass}`}>{toDecisionLabel(decisionKey)}</span>
                   </div>
+                  <p className="muted">Source Key: {output.agent_key}</p>
+                  <p>Confidence: {toNumber(parsed.confidence, 0).toFixed(2)}</p>
                   <p>{parsed.summary || output.summary}</p>
                   <p><strong>Rationale:</strong> {parsed.rationale || '-'}</p>
+                  <p><strong>Related Context:</strong> {contextText}</p>
+
+                  <p className="muted">
+                    <strong>Latest Human Decision:</strong>{' '}
+                    {decision
+                      ? `${toDecisionLabel(decision.decision)} by ${decision.actor || 'Workflow Operator'}`
+                      : 'Pending reviewer action'}
+                  </p>
 
                   {Array.isArray(parsed.recommendations) && parsed.recommendations.length ? (
                     <>
@@ -630,7 +1444,11 @@ export default function SprintPlanningWorkspace() {
                   <div className="inline">
                     <button onClick={() => void rerunAgent(output.agent_key)} disabled={running}>Re-run</button>
                     {DECISIONS.map((d) => (
-                      <button key={`${output.id}-${d.key}`} onClick={() => void recordDecision(output, d.key)}>
+                      <button
+                        key={`${output.id}-${d.key}`}
+                        className={decisionKey === d.key ? 'activeDecisionButton' : ''}
+                        onClick={() => void recordDecision(output, d.key)}
+                      >
                         {d.label}
                       </button>
                     ))}
@@ -644,6 +1462,9 @@ export default function SprintPlanningWorkspace() {
 
       <section className="panel">
         <h2>7) Dependency Table + Graph View</h2>
+        {!(session?.dependencies || []).length ? (
+          <p className="muted">No dependencies available yet. Run or load a planning session to populate the dependency register.</p>
+        ) : null}
         <div className="tableWrap">
           <table>
             <thead>
@@ -671,11 +1492,14 @@ export default function SprintPlanningWorkspace() {
           </table>
         </div>
 
-        <DependencyGraph graph={dependencyOutput?.output_json?.artifacts?.dependency_graph} />
+        <DependencyGraph graph={dependencyOutput?.parsed?.artifacts?.dependency_graph} />
       </section>
 
       <section className="panel">
         <h2>7.1) Sprint Risk Register</h2>
+        {!filteredRisks.length ? (
+          <p className="muted">No risks captured yet. Run risk analysis or load thesis demo data to populate this register.</p>
+        ) : null}
         <div className="inline">
           <label>
             Severity Filter
@@ -719,6 +1543,50 @@ export default function SprintPlanningWorkspace() {
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section className="panel">
+        <h2>7.2) Architecture and Solution Guidance</h2>
+        {architectureNotes.length ? (
+          <div className="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Impacted Components</th>
+                  <th>Constraints</th>
+                  <th>Recommended Actions</th>
+                  <th>Rationale</th>
+                </tr>
+              </thead>
+              <tbody>
+                {architectureNotes.map((note) => (
+                  <tr key={note.id}>
+                    <td>{Array.isArray(note.impacted_components) && note.impacted_components.length ? note.impacted_components.join(', ') : '-'}</td>
+                    <td>{Array.isArray(note.constraints) && note.constraints.length ? note.constraints.join(', ') : '-'}</td>
+                    <td>{Array.isArray(note.recommended_actions) && note.recommended_actions.length ? note.recommended_actions.join(', ') : '-'}</td>
+                    <td>{trimText(note.rationale || '-', 140)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <>
+            <p className="muted">No structured architecture notes yet. Showing current architect advisor guidance.</p>
+            <p><strong>Summary:</strong> {architectureOutput?.parsed?.summary || architectureOutput?.summary || '-'}</p>
+            <p><strong>Rationale:</strong> {architectureOutput?.parsed?.rationale || '-'}</p>
+            {Array.isArray(architectureOutput?.parsed?.recommendations) && architectureOutput.parsed.recommendations.length ? (
+              <>
+                <h3>Recommended Actions</h3>
+                <ul>
+                  {architectureOutput.parsed.recommendations.map((item, index) => (
+                    <li key={`arch-rec-${index}`}>{item}</li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+          </>
+        )}
       </section>
 
       <section className="panel">
@@ -811,6 +1679,9 @@ export default function SprintPlanningWorkspace() {
         ) : null}
 
         <h3>Recent Scenario Runs</h3>
+        {!scenarioRuns.length ? (
+          <p className="muted">No scenario runs recorded yet. Use the scenario buttons above or load thesis demo data.</p>
+        ) : null}
         <div className="tableWrap">
           <table>
             <thead>
@@ -955,6 +1826,15 @@ export default function SprintPlanningWorkspace() {
           cursor: pointer;
         }
 
+        button.secondary {
+          background: #0f766e;
+        }
+
+        button.ghost {
+          background: #dbeafe;
+          color: #1e3a8a;
+        }
+
         button:disabled {
           opacity: 0.55;
           cursor: not-allowed;
@@ -1006,6 +1886,59 @@ export default function SprintPlanningWorkspace() {
           gap: 10px;
         }
 
+        .snapshotGrid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 8px;
+          margin-bottom: 10px;
+        }
+
+        .snapshotGrid article {
+          border: 1px solid #d7e3f2;
+          border-radius: 12px;
+          background: #fff;
+          padding: 10px;
+        }
+
+        .snapshotGrid article p {
+          margin: 0 0 4px;
+          color: #334155;
+          font-size: 13px;
+        }
+
+        .contribGrid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 8px;
+        }
+
+        .contribCard {
+          border: 1px solid #d7e3f2;
+          border-radius: 12px;
+          padding: 10px;
+          background: #fff;
+        }
+
+        .governanceLoopGrid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px;
+          margin-bottom: 10px;
+        }
+
+        .governanceCard {
+          border: 1px solid #d7e3f2;
+          border-radius: 12px;
+          padding: 10px;
+          background: #fff;
+        }
+
+        .governanceCard p {
+          margin: 0 0 4px;
+          color: #334155;
+          font-size: 13px;
+        }
+
         .card {
           border: 1px solid #d7e3f2;
           border-radius: 12px;
@@ -1018,6 +1951,82 @@ export default function SprintPlanningWorkspace() {
           justify-content: space-between;
           gap: 8px;
           margin-bottom: 6px;
+        }
+
+        .statusTag {
+          display: inline-flex;
+          align-items: center;
+          border-radius: 999px;
+          padding: 3px 9px;
+          font-size: 11px;
+          font-weight: 700;
+          border: 1px solid transparent;
+          white-space: nowrap;
+        }
+
+        .status-pending {
+          background: #f8fafc;
+          color: #475569;
+          border-color: #cbd5e1;
+        }
+
+        .status-accept {
+          background: #ecfdf5;
+          color: #166534;
+          border-color: #86efac;
+        }
+
+        .status-modify {
+          background: #eff6ff;
+          color: #1d4ed8;
+          border-color: #93c5fd;
+        }
+
+        .status-reject {
+          background: #fef2f2;
+          color: #991b1b;
+          border-color: #fca5a5;
+        }
+
+        .status-request_clarification {
+          background: #fffbeb;
+          color: #92400e;
+          border-color: #fcd34d;
+        }
+
+        .status-approved {
+          background: #ecfdf5;
+          color: #166534;
+          border-color: #86efac;
+        }
+
+        .status-rejected {
+          background: #fef2f2;
+          color: #991b1b;
+          border-color: #fca5a5;
+        }
+
+        .status-finalized {
+          background: #eff6ff;
+          color: #1d4ed8;
+          border-color: #93c5fd;
+        }
+
+        .status-info {
+          background: #f8fafc;
+          color: #475569;
+          border-color: #cbd5e1;
+        }
+
+        .status-error {
+          background: #fff1f2;
+          color: #9f1239;
+          border-color: #fda4af;
+        }
+
+        .activeDecisionButton {
+          background: #0f766e;
+          box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35);
         }
 
         ul {
@@ -1040,13 +2049,33 @@ export default function SprintPlanningWorkspace() {
           overflow: auto;
         }
 
-        .exportLinks {
+        .exportDeck {
           display: grid;
-          gap: 6px;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          margin-bottom: 10px;
         }
 
-        .exportLinks a {
+        .exportDeck article {
+          border: 1px solid #c8dbf1;
+          border-radius: 12px;
+          background: linear-gradient(180deg, #ffffff, #f4f9ff);
+          padding: 10px;
+          display: grid;
+          gap: 6px;
+        }
+
+        .exportDeck article strong {
+          color: #10365f;
+        }
+
+        .exportDeck article p {
+          margin: 0;
+          color: #44627f;
+          font-size: 12px;
+        }
+
+        .exportDeck a {
           border: 1px solid #d5e2f3;
           border-radius: 10px;
           padding: 8px;
@@ -1055,6 +2084,27 @@ export default function SprintPlanningWorkspace() {
           font-weight: 600;
           background: #f8fbff;
           text-align: center;
+        }
+
+        .inline a {
+          border: 1px solid #c6d9f0;
+          border-radius: 9px;
+          padding: 8px 11px;
+          color: #0f3b63;
+          background: #f8fbff;
+          text-decoration: none;
+          font-weight: 700;
+          font-size: 13px;
+          display: inline-flex;
+          align-items: center;
+        }
+
+        .governanceFilters {
+          align-items: flex-end;
+        }
+
+        .governanceFilters label {
+          min-width: 170px;
         }
 
         .graphWrap {
@@ -1102,9 +2152,16 @@ export default function SprintPlanningWorkspace() {
 
           .twoCol,
           .cards,
-          .exportLinks,
+          .snapshotGrid,
+          .contribGrid,
+          .governanceLoopGrid,
+          .exportDeck,
           .grid4 {
             grid-template-columns: 1fr;
+          }
+
+          .governanceFilters label {
+            min-width: 100%;
           }
         }
       `}</style>

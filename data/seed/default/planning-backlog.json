@@ -1,0 +1,57 @@
+{
+  "items": [
+    {
+      "id": "US-401",
+      "title": "As a product owner, I can prioritize backlog in one workspace",
+      "description": "Enable prioritized view with business value and readiness indicators.",
+      "businessValue": 10,
+      "priority": "High",
+      "acceptanceCriteria": [
+        "Priority score is visible",
+        "Readiness state is visible"
+      ]
+    },
+    {
+      "id": "US-402",
+      "title": "As a scrum master, I can compare sprint capacity versus estimates",
+      "description": "Show total AI estimate, final estimate, and capacity delta.",
+      "businessValue": 9,
+      "priority": "High",
+      "acceptanceCriteria": [
+        "Capacity panel updates in real time",
+        "Override values are persisted"
+      ]
+    },
+    {
+      "id": "US-403",
+      "title": "As an engineer, I can see dependency risks before sprint commitment",
+      "description": "Identify sequence blockers and mitigation suggestions.",
+      "businessValue": 8,
+      "priority": "Medium",
+      "acceptanceCriteria": [
+        "Dependencies are listed",
+        "Threatening dependencies are highlighted"
+      ]
+    },
+    {
+      "id": "US-404",
+      "title": "As an architect, I can capture technical enablers and constraints",
+      "description": "Generate architecture intent note for sprint stories.",
+      "businessValue": 7,
+      "priority": "Medium",
+      "acceptanceCriteria": [
+        "Architecture note can be exported"
+      ]
+    },
+    {
+      "id": "US-405",
+      "title": "As governance, I can export sprint risk register",
+      "description": "Provide risk register with mitigation and ownership.",
+      "businessValue": 8,
+      "priority": "High",
+      "acceptanceCriteria": [
+        "Risk export works in CSV and JSON"
+      ]
+    }
+  ]
+}

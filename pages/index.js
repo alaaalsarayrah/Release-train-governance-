@@ -6,17 +6,76 @@ export default function Home() {
   const [identity, setIdentity] = useState(null)
   const adminEntryHref = '/login?next=/administrator'
 
-  const quickLinks = [
-    { href: '/sprint-planning-workspace', title: 'Sprint Planning Workspace', desc: 'Main thesis demo: orchestrated multi-agent SAFe sprint planning assistant.' },
-    { href: '/agentic-workflow', title: 'Agentic Workflow Console', desc: 'Run demand and BRD stages with Brain review loop.' },
-    { href: adminEntryHref, title: 'Administrator Console', desc: 'Run cleanup actions and access core admin controls.' },
-    { href: '/project-documentation', title: 'Project Documentation', desc: 'Complete handbook of personas, workflow, architecture, and operations.' },
-    { href: '/dashboard', title: 'Business Requests Dashboard', desc: 'Approve requests and run Stage 1 orchestration.' },
-    { href: '/teams', title: 'Teams and Sprint Setup', desc: 'Provision squads, sprints, and ADO team structure.' },
-    { href: '/scrum-master', title: 'AI Scrum Master', desc: 'Interactive assistant for sprint planning context.' },
-    { href: '/brd-workflow', title: 'BRD to ADO Workflow', desc: 'Reference flow for requirements and backlog linkage.' },
-    { href: '/demo', title: 'Interactive Demo', desc: 'Prototype exploration environment for thesis.' },
-    { href: '/thesis', title: 'Thesis Upload', desc: 'Upload and parse supporting thesis document files.' }
+  const primaryLinks = [
+    {
+      href: '/thesis-demo',
+      title: 'Thesis Demo Flow',
+      desc: 'Guided end-to-end walkthrough for supervisor review.'
+    },
+    {
+      href: '/conceptual-framework',
+      title: 'Conceptual Framework',
+      desc: '30-second SAFe-Agentic AI mapping for supervisor-facing explanation.'
+    },
+    {
+      href: '/sprint-planning-workspace',
+      title: 'SAFe Sprint Planning Workspace',
+      desc: 'Primary prototype workspace for planning, estimation, dependencies, risks, and architecture guidance.'
+    },
+    {
+      href: '/evaluation',
+      title: 'Evaluation Evidence Console',
+      desc: 'Capture TAM and scenario data to support thesis findings.'
+    },
+    {
+      href: '/planning-export-center',
+      title: 'Planning Export Center',
+      desc: 'Generate governed JSON/CSV evidence for review and reporting.'
+    }
+  ]
+
+  const supportingLinks = [
+    { href: '/agentic-workflow', title: 'Supporting Workflow Console', desc: 'Demand and BRD governance stages that feed sprint planning inputs.' },
+    { href: '/dashboard', title: 'Supporting Demand Intake Dashboard', desc: 'Approve business requests and monitor upstream status.' },
+    { href: '/teams', title: 'Team and Sprint Setup', desc: 'Configure squads and sprint definitions used in planning runs.' },
+    { href: '/brd-workflow', title: 'BRD to ADO Workflow', desc: 'Optional requirements-to-backlog assistive path.' },
+    { href: '/scrum-master', title: 'AI Scrum Master Sandbox', desc: 'Optional conversational simulation for facilitation support.' },
+    { href: adminEntryHref, title: 'Administrator Console', desc: 'Session identity, persona controls, and governance administration.' },
+    { href: '/project-documentation', title: 'Project Documentation', desc: 'Thesis prototype handbook with architecture and operations details.' },
+    { href: '/thesis', title: 'Thesis Upload', desc: 'Upload and parse thesis supporting documents.' }
+  ]
+
+  const demoSteps = [
+    {
+      href: '/teams',
+      title: 'Sprint and Team Setup',
+      desc: 'Select or configure the delivery team and sprint context.'
+    },
+    {
+      href: '/agentic-workflow',
+      title: 'Backlog Preparation',
+      desc: 'Run supporting demand and BRD governance to prepare backlog inputs.'
+    },
+    {
+      href: '/conceptual-framework',
+      title: 'Conceptual Framework Briefing',
+      desc: 'Explain role-agent-artifact-governance mapping before the interactive demo.'
+    },
+    {
+      href: '/sprint-planning-workspace',
+      title: 'Sprint Planning Session',
+      desc: 'Run AI specialist agents with capacity-aware planning and human overrides.'
+    },
+    {
+      href: '/planning-export-center',
+      title: 'Dependencies, Risks, and Architecture Review',
+      desc: 'Inspect and export planning artifacts for governance discussion.'
+    },
+    {
+      href: '/evaluation',
+      title: 'Evaluation Evidence Capture',
+      desc: 'Record scenario outcomes and TAM metrics for thesis evidence.'
+    }
   ]
 
   useEffect(() => {
@@ -40,19 +99,19 @@ export default function Home() {
 
       <section className="hero">
         <div className="heroMain">
-          <p className="kicker">Agentic SDLC Orchestration</p>
-          <h1>AI Brain + Demand + Business Analyst Working as One Delivery System</h1>
+          <p className="kicker">Master's Thesis Prototype</p>
+          <h1>AI-Assisted SAFe Sprint Planning with Human Governance</h1>
           <p className="lead">
-            This workspace operationalizes your thesis vision: an agentic SDLC pipeline that accepts
-            business requests, generates demand and BRD outputs via OLLAMA, enforces Brain approvals,
-            synchronizes to Azure DevOps, and captures who/when audit evidence.
+            This prototype focuses on sprint planning quality: backlog refinement support, capacity awareness,
+            estimation guidance, dependency detection, risk identification, architecture guidance, and explicit
+            human review decisions with exportable evaluation evidence.
           </p>
 
           <div className="heroActions">
-            <Link href="/agentic-workflow">Open Workflow Console</Link>
+            <Link href="/thesis-demo" className="primary">Start Thesis Demo</Link>
+            <Link href="/conceptual-framework">Open Conceptual Framework</Link>
             <Link href="/sprint-planning-workspace">Open Sprint Planning Workspace</Link>
-            <Link href="/dashboard">Open Operations Dashboard</Link>
-            <Link href={adminEntryHref}>Open Administrator</Link>
+            <Link href="/agentic-workflow" className="ghost">Open Supporting Workflow</Link>
           </div>
 
           <div className="currentActor">
@@ -78,13 +137,49 @@ export default function Home() {
 
       <section className="linksCard bottomLinks">
         <div className="sectionHead">
-          <h2>Operations Quick Access</h2>
-          <p>Navigate directly to orchestration, approvals, and operational setup tools.</p>
+          <h2>Thesis Demo Path</h2>
+          <p>Recommended walkthrough: sprint setup, backlog preparation, planning decisions, governance review, evaluation evidence.</p>
+        </div>
+
+        <ol className="demoPath">
+          {demoSteps.map((item, idx) => (
+            <li key={item.href} className="demoStep">
+              <span className="stepNum">Step {idx + 1}</span>
+              <strong>{item.title}</strong>
+              <p>{item.desc}</p>
+              <Link href={item.href}>Open Step</Link>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <section className="linksCard bottomLinks">
+        <div className="sectionHead">
+          <h2>Primary Thesis Paths</h2>
+          <p>Core paths for demonstrating the thesis scope.</p>
         </div>
 
         <div className="linkGrid">
-          {quickLinks.map((item) => (
+          {primaryLinks.map((item) => (
+            <Link key={item.href} href={item.href} className="linkTile primaryTile">
+              <em>Primary</em>
+              <strong>{item.title}</strong>
+              <span>{item.desc}</span>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <section className="linksCard bottomLinks">
+        <div className="sectionHead">
+          <h2>Supporting Modules</h2>
+          <p>Upstream workflow and administration modules retained as supporting capabilities.</p>
+        </div>
+
+        <div className="linkGrid">
+          {supportingLinks.map((item) => (
             <Link key={item.href} href={item.href} className="linkTile">
+              <em>Supporting</em>
               <strong>{item.title}</strong>
               <span>{item.desc}</span>
             </Link>
@@ -93,7 +188,7 @@ export default function Home() {
       </section>
 
       <footer className="foot">
-        Built as an operational thesis lab for auditable, AI-assisted SDLC orchestration.
+        Built as a thesis prototype for AI-assisted SAFe sprint planning with governed human review and evidence capture.
       </footer>
 
       <style jsx>{`
@@ -173,6 +268,16 @@ export default function Home() {
           background: linear-gradient(135deg, #1f5fbc, #148fb4);
         }
 
+        .heroActions :global(a.primary) {
+          box-shadow: 0 8px 22px rgba(31, 95, 188, 0.28);
+        }
+
+        .heroActions :global(a.ghost) {
+          background: #fff;
+          color: #0d3a64;
+          border: 1px solid #b9d1ee;
+        }
+
         .currentActor {
           margin-top: 12px;
           border: 1px solid #d6e3f4;
@@ -239,10 +344,68 @@ export default function Home() {
           font-size: 14px;
         }
 
+        .linkTile em {
+          font-style: normal;
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          color: #4e6984;
+          font-weight: 700;
+        }
+
         .linkTile span {
           color: #4d647e;
           font-size: 12px;
           line-height: 1.35;
+        }
+
+        .primaryTile {
+          border-color: #8bb3e4;
+          background: linear-gradient(180deg, #f6fbff, #edf5ff);
+        }
+
+        .demoPath {
+          list-style: none;
+          margin: 0;
+          padding: 0;
+          display: grid;
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          gap: 10px;
+        }
+
+        .demoStep {
+          border: 1px solid #c8daf0;
+          border-radius: 14px;
+          padding: 12px;
+          background: linear-gradient(180deg, #fcfdff, #f4f8ff);
+          display: grid;
+          gap: 6px;
+        }
+
+        .stepNum {
+          text-transform: uppercase;
+          font-size: 10px;
+          letter-spacing: 0.06em;
+          color: #4e6984;
+          font-weight: 700;
+        }
+
+        .demoStep strong {
+          color: #11365c;
+          font-size: 13px;
+        }
+
+        .demoStep p {
+          margin: 0;
+          color: #4d647e;
+          font-size: 12px;
+          line-height: 1.35;
+        }
+
+        .demoStep :global(a) {
+          color: #0d3a64;
+          font-weight: 700;
+          text-decoration: none;
         }
 
         .linkTile:hover {
@@ -271,6 +434,10 @@ export default function Home() {
             grid-template-columns: 1fr;
           }
 
+          .demoPath {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+
           .linkGrid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
           }
@@ -286,6 +453,10 @@ export default function Home() {
           }
 
           .linkGrid {
+            grid-template-columns: 1fr;
+          }
+
+          .demoPath {
             grid-template-columns: 1fr;
           }
 

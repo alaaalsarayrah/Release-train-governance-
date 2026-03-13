@@ -69,23 +69,22 @@ export default function SDLCFlow() {
     { label: 'Brain Review: Demand', icon: 'RV', accent: '#e98537' },
     { label: 'BRD Draft (AI_Requirement)', icon: 'BA', accent: '#25796b' },
     { label: 'Brain Review: BRD', icon: 'RV', accent: '#a367d9' },
-    { label: 'Epic Scoping', icon: 'EP', accent: '#3d6ad4' }
+    { label: 'Backlog Ready for Sprint Planning', icon: 'SP', accent: '#3d6ad4' }
   ]
 
   return (
     <div className="flow-shell">
       <div className="hero-block">
         <div>
-          <h2>Agentic SDLC Workflow</h2>
+          <h2>Supporting Upstream Workflow (Demand and BRD)</h2>
           <p>
-            Human business users create requests, then the agentic pipeline orchestrates Demand and BRD stages,
-            with Brain approvals and complete audit trail logging.
+            Optional upstream path that prepares and governs demand and BRD artifacts before entering
+            the primary SAFe sprint planning thesis workspace.
           </p>
         </div>
         <div className="hero-actions">
           <button onClick={() => { setGeneratedId(`BR-${Date.now()}`); setShowForm(true) }}>Create Business Request</button>
-          <button onClick={() => router.push('/agentic-workflow')}>Open Workflow Console</button>
-          <button onClick={() => router.push('/login?next=/administrator')}>Open Administrator</button>
+          <button onClick={() => router.push('/agentic-workflow')}>Open Supporting Workflow</button>
         </div>
       </div>
 

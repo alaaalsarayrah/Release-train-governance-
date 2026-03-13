@@ -9,6 +9,7 @@ export default function LoginPage() {
   const [checkingSession, setCheckingSession] = useState(true)
   const [currentSessionUser, setCurrentSessionUser] = useState(null)
   const [message, setMessage] = useState('')
+  const showDevLoginNote = process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_ENABLE_DEV_LOGIN_NOTE === 'true'
 
   useEffect(() => {
     void checkExistingSession()
@@ -103,7 +104,7 @@ export default function LoginPage() {
             <input
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="admin"
+              placeholder="Enter username"
               autoComplete="username"
               required
             />
@@ -125,11 +126,12 @@ export default function LoginPage() {
 
         {message ? <div className="msg">{message}</div> : null}
 
-        <div className="demoAccounts">
-          <h3>Default Accounts</h3>
-          <p><strong>Admin:</strong> admin / admin123</p>
-          <p><strong>User:</strong> operator / operator123</p>
-        </div>
+        {showDevLoginNote ? (
+          <div className="demoAccounts">
+            <h3>Development Access Note</h3>
+            <p>Use locally configured accounts for development sign-in.</p>
+          </div>
+        ) : null}
       </section>
 
       <style jsx>{`

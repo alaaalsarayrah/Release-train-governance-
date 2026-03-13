@@ -1,138 +1,88 @@
 {
   "teams": [
     {
-      "id": "team-dubai",
-      "name": "Dubai Team",
+      "id": "team-digital-dubai",
+      "name": "Dubai Digital Services Team",
       "region": "Dubai",
       "members": [
         {
-          "name": "Alaa Alsarayrah",
+          "name": "Maha Al Nuaimi",
           "role": "Product Owner",
           "type": "Human",
-          "email": "aaa764@uowmail.edu.au"
+          "email": "maha.alnuaimi@smartgov.ae"
         },
         {
-          "name": "Noura Khan",
-          "role": "Developer",
-          "type": "Human",
-          "email": "aaa764@uowmail.edu.au"
-        },
-        {
-          "name": "Yousef Rahman",
-          "role": "Tester",
-          "type": "Human",
-          "email": "aaa764@uowmail.edu.au"
-        },
-        {
-          "name": "Lina Haddad",
-          "role": "Business Analyst",
-          "type": "Human",
-          "email": "aaa764@uowmail.edu.au"
-        },
-        {
-          "name": "AI Dev Agent - Dubai",
-          "role": "Developer",
-          "type": "AI Agent"
-        },
-        {
-          "name": "AI QA Agent - Dubai",
-          "role": "Tester",
-          "type": "AI Agent"
-        },
-        {
-          "name": "AI BA Agent - Dubai",
-          "role": "Business Analyst",
-          "type": "AI Agent"
-        }
-      ]
-    },
-    {
-      "id": "team-rak",
-      "name": "RAK Team",
-      "region": "Ras Al Khaimah",
-      "members": [
-        {
-          "name": "Mariam Saeed",
+          "name": "Saeed Al Mansoori",
           "role": "Scrum Master",
           "type": "Human",
-          "email": "aaa764@uowmail.edu.au"
+          "email": "saeed.almansoori@smartgov.ae"
         },
         {
-          "name": "Khaled Omar",
+          "name": "Nour El Din",
           "role": "Developer",
           "type": "Human",
-          "email": "aaa764@uowmail.edu.au"
+          "email": "nour.eldin@smartgov.ae"
         },
         {
-          "name": "Rashid Noor",
-          "role": "Tester",
-          "type": "Human",
-          "email": "aaa764@uowmail.edu.au"
-        },
-        {
-          "name": "Dana Karim",
+          "name": "Rania Sabet",
           "role": "Business Analyst",
           "type": "Human",
-          "email": "aaa764@uowmail.edu.au"
+          "email": "rania.sabet@smartgov.ae"
         },
         {
-          "name": "AI Dev Agent - RAK",
+          "name": "Huda Karim",
+          "role": "Tester",
+          "type": "Human",
+          "email": "huda.karim@smartgov.ae"
+        },
+        {
+          "name": "AI Planning Specialist - Dubai",
           "role": "Developer",
           "type": "AI Agent"
         },
         {
-          "name": "AI QA Agent - RAK",
+          "name": "AI Quality Specialist - Dubai",
           "role": "Tester",
-          "type": "AI Agent"
-        },
-        {
-          "name": "AI BA Agent - RAK",
-          "role": "Business Analyst",
           "type": "AI Agent"
         }
       ]
     },
     {
-      "id": "team-auh",
-      "name": "AUH Team",
+      "id": "team-integration-abu-dhabi",
+      "name": "Abu Dhabi Integration Team",
       "region": "Abu Dhabi",
       "members": [
         {
-          "name": "Fatima Ali",
+          "name": "Yasir Al Mazrouei",
           "role": "Delivery Lead",
           "type": "Human",
-          "email": "aaa764@uowmail.edu.au"
+          "email": "yasir.almazrouei@smartgov.ae"
         },
         {
-          "name": "Hassan Salem",
+          "name": "Layla Nasser",
           "role": "Developer",
           "type": "Human",
-          "email": "aaa764@uowmail.edu.au"
+          "email": "layla.nasser@smartgov.ae"
         },
         {
-          "name": "Iman Khalifa",
-          "role": "Tester",
-          "type": "Human",
-          "email": "aaa764@uowmail.edu.au"
-        },
-        {
-          "name": "Omar Nasser",
+          "name": "Amina Farhat",
           "role": "Business Analyst",
           "type": "Human",
-          "email": "aaa764@uowmail.edu.au"
+          "email": "amina.farhat@smartgov.ae"
         },
         {
-          "name": "AI Dev Agent - AUH",
+          "name": "Firas Haddad",
+          "role": "Tester",
+          "type": "Human",
+          "email": "firas.haddad@smartgov.ae"
+        },
+        {
+          "name": "AI Integration Specialist - AUH",
           "role": "Developer",
           "type": "AI Agent"
         },
         {
-          "name": "AI QA Agent - AUH",
-          "role": "Tester",
-          "type": "AI Agent"
-        },
-        {
-          "name": "AI BA Agent - AUH",
+          "name": "AI Risk Specialist - AUH",
           "role": "Business Analyst",
           "type": "AI Agent"
         }
@@ -141,17 +91,17 @@
   ],
   "sprints": [
     {
-      "id": "sprint-1",
-      "name": "Sprint 1",
-      "startDate": "2026-03-10",
-      "endDate": "2026-03-23",
-      "status": "Planned"
+      "id": "sprint-5-2026",
+      "name": "Sprint 5 - Digital Services Wave 2",
+      "startDate": "2026-03-09",
+      "endDate": "2026-03-22",
+      "status": "Active"
     },
     {
-      "id": "sprint-2",
-      "name": "Sprint 2",
-      "startDate": "2026-03-24",
-      "endDate": "2026-04-06",
+      "id": "sprint-6-2026",
+      "name": "Sprint 6 - Integration Hardening",
+      "startDate": "2026-03-23",
+      "endDate": "2026-04-05",
       "status": "Planned"
     }
   ]

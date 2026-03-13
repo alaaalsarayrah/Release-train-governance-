@@ -107,17 +107,20 @@ export default function ExecutiveSummaryPage() {
       <header className="hero">
         <div>
           <p className="kicker">Executive View</p>
-          <h1>Agentic SDLC Executive Summary</h1>
+          <h1>Thesis Prototype Executive Summary</h1>
           <p className="lead">
-            A high-level overview of project scope, AI operating model, governance controls,
-            and delivery flow for leadership, sponsors, and decision makers.
+            A high-level overview of the AI-assisted SAFe sprint planning prototype,
+            governance controls, and supporting upstream modules.
           </p>
         </div>
         <div className="heroLinks">
+          <Link href="/thesis-demo">Thesis Demo</Link>
+          <Link href="/sprint-planning-workspace">Sprint Planning Workspace</Link>
+          <Link href="/evaluation">Evaluation</Link>
           <Link href="/administrator">Administrator</Link>
           <Link href="/project-documentation">Full Handbook</Link>
-          <Link href="/agentic-workflow">Workflow Console</Link>
-          <Link href="/dashboard">Dashboard</Link>
+          <Link href="/agentic-workflow">Supporting Workflow</Link>
+          <Link href="/dashboard">Supporting Dashboard</Link>
         </div>
       </header>
 

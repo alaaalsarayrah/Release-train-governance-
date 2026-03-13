@@ -3,6 +3,9 @@ import path from 'path'
 import pdf from 'pdf-parse'
 import mammoth from 'mammoth'
 
+const uploadDir = path.join(process.cwd(), 'public', 'uploads')
+const thesisMetaPath = path.join(process.cwd(), 'data', 'thesis-upload.json')
+
 function firstNSentences(text, n = 3) {
   if (!text) return ''
   const parts = text.replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s+/)
@@ -94,6 +97,65 @@ function getFileType(fileName) {
   return 'unknown'
 }
 
+function readJsonSafe(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return null
+    return JSON.parse(fs.readFileSync(filePath, 'utf-8'))
+  } catch {
+    return null
+  }
+}
+
+function buildEmptyResponse(message, warnings = []) {
+  return {
+    status: 'empty',
+    message,
+    source: 'none',
+    fileName: null,
+    fileType: null,
+    textLength: 0,
+    summary: '',
+    abstract: null,
+    toc: [],
+    chapters: [],
+    roLines: [],
+    rqLines: [],
+    evaluationSignals: [],
+    guidelineSignals: [],
+    parserWarnings: warnings
+  }
+}
+
+function pickThesisCandidateFile() {
+  const meta = readJsonSafe(thesisMetaPath)
+  const warnings = []
+
+  if (meta?.fileName) {
+    const hintedPath = path.join(uploadDir, path.basename(String(meta.fileName)))
+    const hintedType = getFileType(hintedPath)
+    if (fs.existsSync(hintedPath) && (hintedType === 'pdf' || hintedType === 'docx')) {
+      return {
+        candidate: {
+          filePath: hintedPath,
+          fileName: path.basename(hintedPath),
+          fileType: hintedType,
+          source: 'thesis-upload'
+        },
+        warnings
+      }
+    }
+
+    warnings.push('Latest thesis upload reference was not found. Re-upload thesis from Thesis Upload page.')
+  }
+
+  if (!fs.existsSync(uploadDir)) {
+    return { candidate: null, warnings }
+  }
+
+  warnings.push('No thesis-scoped upload found. Upload thesis from Thesis Upload page to enable parsing.')
+  return { candidate: null, warnings }
+}
+
 async function parseDocumentToText(filePath, fileType) {
   if (fileType === 'pdf') {
     const dataBuffer = fs.readFileSync(filePath)
@@ -117,69 +179,65 @@ export default async function handler(req, res) {
   }
 
   try {
-    const uploadDir = path.join(process.cwd(), 'public', 'uploads')
-
-    if (fs.existsSync(uploadDir)) {
-      const files = fs.readdirSync(uploadDir)
-        .filter(f => /\.(pdf|docx|doc)$/i.test(f))
-        .map(f => ({ name: f, time: fs.statSync(path.join(uploadDir, f)).mtime }))
-        .sort((a, b) => b.time - a.time)
-
-      if (files.length === 0) {
-        return res.status(404).json({ message: 'Thesis file not found. Upload a PDF or DOCX file first.' })
-      }
-
-      const latest = files[0]
-      const filePath = path.join(uploadDir, latest.name)
-      const fileType = getFileType(latest.name)
-
-      if (fileType === 'doc') {
-        return res.status(400).json({
-          message: 'Legacy .doc format is not supported. Please upload DOCX or PDF.'
-        })
-      }
-
-      const parsed = await parseDocumentToText(filePath, fileType)
-      const text = parsed.text || ''
-
-      const abstract = extractAbstract(text)
-      const toc = extractTOC(text)
-      const chapters = extractChapters(text)
-      const roLines = extractLines(text, /\bRO\d\b|research objective/i, 40)
-      const rqLines = extractLines(text, /\bRQ\d\b|main research question|supporting research question/i, 40)
-      const evaluationSignals = extractLines(
-        text,
-        /evaluation|TAM|perceived usefulness|ease of use|trust|scenario|survey|interview|metric/i,
-        80
+    const { candidate, warnings } = pickThesisCandidateFile()
+    if (!candidate) {
+      return res.status(200).json(
+        buildEmptyResponse('No thesis document is available yet. Upload a PDF or DOCX from the Thesis Upload page.', warnings)
       )
-      const guidelineSignals = extractLines(
-        text,
-        /guideline|adoption|governance|human-ai|ethical|bias|oversight/i,
-        80
-      )
-
-      const summarySource = abstract || text
-      const summary = firstNSentences(summarySource, 8)
-
-      return res.status(200).json({
-        fileName: latest.name,
-        fileType,
-        textLength: text.length,
-        summary,
-        abstract,
-        toc,
-        chapters,
-        roLines,
-        rqLines,
-        evaluationSignals,
-        guidelineSignals,
-        parserWarnings: parsed.warnings
-      })
-    } else {
-      return res.status(404).json({ message: 'Thesis file not found. Upload first.' })
     }
+
+    const parsed = await parseDocumentToText(candidate.filePath, candidate.fileType)
+    const text = String(parsed.text || '')
+
+    if (!text.trim()) {
+      return res.status(200).json(
+        buildEmptyResponse(
+          'The selected document was parsed but no readable text was extracted. Try a text-based PDF or DOCX file.',
+          [...warnings, ...(parsed.warnings || [])]
+        )
+      )
+    }
+
+    const abstract = extractAbstract(text)
+    const toc = extractTOC(text)
+    const chapters = extractChapters(text)
+    const roLines = extractLines(text, /\bRO\d\b|research objective/i, 40)
+    const rqLines = extractLines(text, /\bRQ\d\b|main research question|supporting research question/i, 40)
+    const evaluationSignals = extractLines(
+      text,
+      /evaluation|TAM|perceived usefulness|ease of use|trust|scenario|survey|interview|metric/i,
+      80
+    )
+    const guidelineSignals = extractLines(
+      text,
+      /guideline|adoption|governance|human-ai|ethical|bias|oversight/i,
+      80
+    )
+
+    const summarySource = abstract || text
+    const summary = firstNSentences(summarySource, 8)
+
+    return res.status(200).json({
+      status: 'ok',
+      message: candidate.source === 'thesis-upload'
+        ? 'Thesis analysis completed from thesis-scoped upload.'
+        : 'Analysis completed using thesis-name fallback. Upload from Thesis Upload page for explicit scoping.',
+      source: candidate.source,
+      fileName: candidate.fileName,
+      fileType: candidate.fileType,
+      textLength: text.length,
+      summary,
+      abstract,
+      toc,
+      chapters,
+      roLines,
+      rqLines,
+      evaluationSignals,
+      guidelineSignals,
+      parserWarnings: [...warnings, ...(parsed.warnings || [])]
+    })
   } catch (err) {
     console.error('parse error', err)
-    res.status(500).json({ message: 'Parse failed', error: String(err) })
+    res.status(500).json({ status: 'error', message: 'Parse failed', error: String(err) })
   }
 }

@@ -1,4 +1,5 @@
 import { dbAll, withDb } from '../_lib/requests-db'
+import { deriveEvaluationMetrics, summarizeEvaluationRows } from '../../../lib/evaluation/evidence-metrics'
 
 function csvEscape(value) {
   if (value === null || value === undefined) return ''
@@ -10,20 +11,47 @@ function toCsv(rows) {
   const headers = [
     'id',
     'created_at',
+    'evaluated_at',
     'scenario_id',
     'scenario_name',
+    'planning_session_id',
+    'team_id',
+    'team_name',
+    'sprint_id',
+    'sprint_name',
     'participant_id',
     'participant_role',
+    'evaluator_id',
+    'evaluator_role',
     'perceived_usefulness',
     'ease_of_use',
     'trust',
     'intention_to_use',
     'task_completion_minutes',
+    'baseline_manual_planning_minutes',
+    'ai_assisted_planning_minutes',
+    'time_reduction_minutes',
+    'time_reduction_percent',
     'recommendations_generated',
     'recommendations_accepted',
+    'recommendation_acceptance_ratio',
+    'dependency_issues_identified',
+    'dependency_issues_validated',
+    'dependency_validation_ratio',
+    'risk_items_identified',
+    'risk_recommendations_accepted',
+    'risk_acceptance_ratio',
+    'estimation_baseline',
+    'ai_supported_estimate',
+    'estimation_variance',
+    'estimation_variance_percent',
     'clarification_requests',
+    'task_completion_success',
     'system_response_ms',
     'error_count',
+    'evaluator_comments',
+    'observations',
+    'limitations',
     'notes',
     'interview_notes'
   ]
@@ -34,38 +62,6 @@ function toCsv(rows) {
 
   return [headers.join(','), ...lines].join('\n')
 }
-
-function summarize(rows) {
-  const mean = (field) => {
-    const values = rows
-      .map((r) => Number(r[field]))
-      .filter((n) => Number.isFinite(n))
-    if (!values.length) return null
-    return Number((values.reduce((a, b) => a + b, 0) / values.length).toFixed(2))
-  }
-
-  const generated = rows
-    .map((r) => Number(r.recommendations_generated || 0))
-    .filter((n) => Number.isFinite(n) && n >= 0)
-    .reduce((a, b) => a + b, 0)
-  const accepted = rows
-    .map((r) => Number(r.recommendations_accepted || 0))
-    .filter((n) => Number.isFinite(n) && n >= 0)
-    .reduce((a, b) => a + b, 0)
-
-  return {
-    totalEvaluations: rows.length,
-    avgPerceivedUsefulness: mean('perceived_usefulness'),
-    avgEaseOfUse: mean('ease_of_use'),
-    avgTrust: mean('trust'),
-    avgIntentionToUse: mean('intention_to_use'),
-    avgTaskCompletionMinutes: mean('task_completion_minutes'),
-    avgSystemResponseMs: mean('system_response_ms'),
-    avgErrors: mean('error_count'),
-    recommendationAcceptanceRate: generated > 0 ? Number(((accepted / generated) * 100).toFixed(2)) : null
-  }
-}
-
 async function loadRows(query) {
   return withDb(async (db) => {
     const clauses = []
@@ -76,6 +72,21 @@ async function loadRows(query) {
       params.push(String(query.scenarioId))
     }
 
+    if (query.planningSessionId) {
+      clauses.push('planning_session_id = ?')
+      params.push(String(query.planningSessionId))
+    }
+
+    if (query.teamName) {
+      clauses.push('team_name = ?')
+      params.push(String(query.teamName))
+    }
+
+    if (query.sprintName) {
+      clauses.push('sprint_name = ?')
+      params.push(String(query.sprintName))
+    }
+
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
 
     return dbAll(
@@ -83,20 +94,47 @@ async function loadRows(query) {
       `SELECT
         id,
         created_at,
+        evaluated_at,
         scenario_id,
         scenario_name,
+        planning_session_id,
+        team_id,
+        team_name,
+        sprint_id,
+        sprint_name,
         participant_id,
         participant_role,
+        evaluator_id,
+        evaluator_role,
         perceived_usefulness,
         ease_of_use,
         trust,
         intention_to_use,
         task_completion_minutes,
+        baseline_manual_planning_minutes,
+        ai_assisted_planning_minutes,
+        time_reduction_minutes,
+        time_reduction_percent,
         recommendations_generated,
         recommendations_accepted,
+        recommendation_acceptance_ratio,
+        dependency_issues_identified,
+        dependency_issues_validated,
+        dependency_validation_ratio,
+        risk_items_identified,
+        risk_recommendations_accepted,
+        risk_acceptance_ratio,
+        estimation_baseline,
+        ai_supported_estimate,
+        estimation_variance,
+        estimation_variance_percent,
         clarification_requests,
+        task_completion_success,
         system_response_ms,
         error_count,
+        evaluator_comments,
+        observations,
+        limitations,
         notes,
         interview_notes
       FROM thesis_evaluations
@@ -114,8 +152,8 @@ export default async function handler(req, res) {
   }
 
   try {
-    const rows = await loadRows(req.query || {})
-    const summary = summarize(rows)
+    const rows = (await loadRows(req.query || {})).map((row) => deriveEvaluationMetrics(row))
+    const summary = summarizeEvaluationRows(rows)
 
     const format = String(req.query.format || 'json').toLowerCase()
     if (format === 'csv') {
@@ -128,6 +166,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       generatedAt: new Date().toISOString(),
+      thesisTitle: 'Chapter 4 Evidence Snapshot',
       summary,
       rows
     })

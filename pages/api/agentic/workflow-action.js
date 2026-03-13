@@ -18,6 +18,7 @@ import {
 
 const personaPath = path.join(process.cwd(), 'data', 'agentic', 'personas.json')
 const adoConfigPath = path.join(process.cwd(), 'public', '.ado-config.json')
+const teamSetupPath = path.join(process.cwd(), 'data', 'team-setup.json')
 
 function nowIso() {
   return new Date().toISOString()
@@ -65,6 +66,15 @@ function loadAdoConfig() {
   }
 }
 
+function loadTeamSetup() {
+  if (!fs.existsSync(teamSetupPath)) return null
+  try {
+    return JSON.parse(fs.readFileSync(teamSetupPath, 'utf-8'))
+  } catch {
+    return null
+  }
+}
+
 async function updateBr(id, fields) {
   await withDb(async (db) => {
     await updateBusinessRequestFields(db, id, fields)
@@ -97,6 +107,890 @@ function tryParseJson(text) {
 
 function unique(items) {
   return [...new Set(Array.isArray(items) ? items : [])].filter(Boolean)
+}
+
+function getSelfBaseUrl(req) {
+  const protoHeader = req.headers['x-forwarded-proto']
+  const hostHeader = req.headers['x-forwarded-host'] || req.headers.host
+  const proto = Array.isArray(protoHeader) ? protoHeader[0] : (protoHeader || 'http')
+  const host = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader
+  return `${proto}://${host}`
+}
+
+async function postLocalJson({ req, apiPath, payload, timeoutMs = 180000 }) {
+  const baseUrl = getSelfBaseUrl(req)
+  const response = await withTimeout(
+    () => fetch(`${baseUrl}${apiPath}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {})
+    }),
+    timeoutMs,
+    `${apiPath} request`
+  )
+
+  const text = await response.text()
+  let json = null
+  try {
+    json = text ? JSON.parse(text) : null
+  } catch {
+    json = null
+  }
+
+  if (!response.ok) {
+    throw new Error(json?.message || json?.error || text || `Request failed (${response.status})`)
+  }
+
+  return json || {}
+}
+
+function resolveTeamAndSprint(br, overrides = {}) {
+  const setup = loadTeamSetup()
+  const teamOverride = String(overrides.teamName || '').trim()
+  const sprintOverride = String(overrides.sprintName || '').trim()
+  const fromBrTeam = String(br?.team_name || '').trim()
+  const fromBrSprint = String(br?.sprint_name || '').trim()
+
+  const teamName = teamOverride || fromBrTeam || String(setup?.teams?.[0]?.name || '').trim()
+  const sprintName = sprintOverride || fromBrSprint || String(setup?.sprints?.[0]?.name || '').trim()
+
+  return {
+    teamName: teamName || null,
+    sprintName: sprintName || null
+  }
+}
+
+function priorityWeight(priority) {
+  const normalized = String(priority || '').toLowerCase()
+  if (normalized.includes('high')) return 1.3
+  if (normalized.includes('low')) return 0.8
+  return 1
+}
+
+function calculateStoryPointMetrics(backlog) {
+  const features = Array.isArray(backlog?.features) ? backlog.features : []
+  const stories = Array.isArray(backlog?.userStories) ? backlog.userStories : []
+  const featureWeight = new Map(features.map((feature) => [feature.title, priorityWeight(feature.priority)]))
+
+  let totalPoints = 0
+  let weightedPoints = 0
+  for (const story of stories) {
+    const points = Number(story?.points || 0) || 0
+    const explicitWeight = Number(story?.weight || 0)
+    const weight = explicitWeight > 0 ? explicitWeight : (featureWeight.get(story?.feature) || 1)
+    totalPoints += points
+    weightedPoints += points * weight
+  }
+
+  return {
+    totalPoints,
+    weightedPoints: Number(weightedPoints.toFixed(2))
+  }
+}
+
+function buildAdoUrls(config, teamName) {
+  if (!config?.organization || !config?.project) {
+    return {
+      backlogUrl: null,
+      boardUrl: null,
+      sprintsUrl: null,
+      dashboardsUrl: null
+    }
+  }
+
+  const org = encodeURIComponent(config.organization)
+  const project = encodeURIComponent(config.project)
+  const teamSegment = teamName ? `/t/${encodeURIComponent(teamName)}` : ''
+
+  return {
+    backlogUrl: `https://dev.azure.com/${org}/${project}/_backlogs/backlog`,
+    boardUrl: `https://dev.azure.com/${org}/${project}/_boards/board${teamSegment}`,
+    sprintsUrl: `https://dev.azure.com/${org}/${project}/_sprints`,
+    dashboardsUrl: `https://dev.azure.com/${org}/${project}/_dashboards`
+  }
+}
+
+function parseJsonObject(value) {
+  if (!value) return {}
+  if (typeof value === 'object') return value
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+const DEFAULT_PI_NAME = 'PI-2026-Q1'
+const DEFAULT_ART_NAME = 'Digital ART'
+const DEFAULT_CAPACITY_GUARDRAILS = {
+  business: 60,
+  enabler: 20,
+  defectRisk: 20
+}
+
+function safeBool(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value > 0
+  const normalized = String(value).trim().toLowerCase()
+  if (['true', '1', 'yes', 'y'].includes(normalized)) return true
+  if (['false', '0', 'no', 'n'].includes(normalized)) return false
+  return fallback
+}
+
+function normalizeCapacityGuardrails(value) {
+  const parsed = parseJsonObject(value)
+  const normalized = {
+    business: Number(parsed.business ?? parsed.businessPercent ?? DEFAULT_CAPACITY_GUARDRAILS.business) || 0,
+    enabler: Number(parsed.enabler ?? parsed.enablerPercent ?? DEFAULT_CAPACITY_GUARDRAILS.enabler) || 0,
+    defectRisk: Number(parsed.defectRisk ?? parsed.defect_risk ?? parsed.defectRiskPercent ?? DEFAULT_CAPACITY_GUARDRAILS.defectRisk) || 0,
+    maxDeviation: Number(parsed.maxDeviation ?? parsed.max_deviation ?? 35) || 35
+  }
+
+  return {
+    ...normalized,
+    total: Number((normalized.business + normalized.enabler + normalized.defectRisk).toFixed(2))
+  }
+}
+
+function inferWorkType(featureOrStory) {
+  const text = String(
+    featureOrStory?.workType ||
+    `${featureOrStory?.title || ''} ${featureOrStory?.description || ''} ${featureOrStory?.feature || ''}`
+  ).toLowerCase()
+
+  if (text.includes('defect') || text.includes('risk') || text.includes('compliance') || text.includes('audit') || text.includes('bug')) {
+    return 'Defect-Risk'
+  }
+  if (text.includes('enabler') || text.includes('platform') || text.includes('architecture') || text.includes('automation') || text.includes('infra')) {
+    return 'Enabler'
+  }
+  return 'Business'
+}
+
+function mapPriorityToBusinessValue(priority) {
+  const normalized = String(priority || '').toLowerCase()
+  if (normalized.includes('high')) return 20
+  if (normalized.includes('low')) return 8
+  return 13
+}
+
+function mapUrgencyToTimeCriticality(urgency) {
+  const normalized = String(urgency || '').toLowerCase()
+  if (normalized.includes('high')) return 20
+  if (normalized.includes('low')) return 8
+  return 13
+}
+
+function enrichBacklogWithSafeMetrics(backlog, br) {
+  const features = Array.isArray(backlog?.features) ? [...backlog.features] : []
+  const stories = Array.isArray(backlog?.userStories) ? [...backlog.userStories] : []
+  const urgencyScore = mapUrgencyToTimeCriticality(br?.urgency)
+
+  const storiesByFeature = new Map()
+  for (const story of stories) {
+    const key = String(story?.feature || '').trim()
+    if (!storiesByFeature.has(key)) storiesByFeature.set(key, [])
+    storiesByFeature.get(key).push(story)
+  }
+
+  const wsjfRankings = features.map((feature) => {
+    const featureStories = storiesByFeature.get(String(feature?.title || '').trim()) || []
+    const points = featureStories.reduce((sum, story) => sum + (Number(story?.points || 0) || 0), 0)
+    const workType = inferWorkType(feature)
+    const wsjfInput = parseJsonObject(feature?.wsjf)
+    const businessValue = Number(wsjfInput.businessValue ?? feature?.businessValueScore ?? mapPriorityToBusinessValue(feature?.priority)) || 0
+    const timeCriticality = Number(wsjfInput.timeCriticality ?? feature?.timeCriticality ?? urgencyScore) || 0
+    const riskReductionOpportunity = Number(
+      wsjfInput.riskReductionOpportunity ??
+      feature?.riskReductionOpportunity ??
+      (workType === 'Defect-Risk' ? 13 : (workType === 'Enabler' ? 8 : 5))
+    ) || 0
+    const jobSize = Number(wsjfInput.jobSize ?? feature?.jobSize ?? Math.max(3, Math.round(points || featureStories.length || 3))) || 1
+    const wsjfScore = Number(((businessValue + timeCriticality + riskReductionOpportunity) / Math.max(jobSize, 1)).toFixed(2))
+
+    return {
+      featureTitle: feature?.title,
+      workType,
+      businessValue,
+      timeCriticality,
+      riskReductionOpportunity,
+      jobSize,
+      wsjfScore
+    }
+  })
+
+  const wsjfByFeature = new Map(wsjfRankings.map((item) => [String(item.featureTitle || ''), item]))
+  const orderedFeatures = [...features].sort((a, b) => {
+    const scoreA = wsjfByFeature.get(String(a?.title || ''))?.wsjfScore || 0
+    const scoreB = wsjfByFeature.get(String(b?.title || ''))?.wsjfScore || 0
+    return scoreB - scoreA
+  })
+
+  const featureRank = new Map(orderedFeatures.map((feature, index) => [String(feature?.title || ''), index]))
+  const orderedStories = [...stories]
+    .map((story) => {
+      const workType = inferWorkType({ ...story, workType: wsjfByFeature.get(String(story?.feature || ''))?.workType })
+      const score = wsjfByFeature.get(String(story?.feature || ''))?.wsjfScore || 0
+      return {
+        ...story,
+        workType,
+        wsjfScore: score,
+        dependencies: Array.isArray(story?.dependencies) ? story.dependencies : []
+      }
+    })
+    .sort((a, b) => {
+      const rankA = featureRank.get(String(a?.feature || '')) ?? 999
+      const rankB = featureRank.get(String(b?.feature || '')) ?? 999
+      if (rankA !== rankB) return rankA - rankB
+      return (Number(b?.points || 0) || 0) - (Number(a?.points || 0) || 0)
+    })
+
+  // Inject lightweight dependency chains to support dashboard heatmap metrics.
+  const perFeatureChain = new Map()
+  for (const story of orderedStories) {
+    const key = String(story?.feature || '').trim()
+    if (!perFeatureChain.has(key)) perFeatureChain.set(key, [])
+    perFeatureChain.get(key).push(story)
+  }
+  for (const featureStories of perFeatureChain.values()) {
+    for (let i = 1; i < featureStories.length; i++) {
+      const current = featureStories[i]
+      if (Array.isArray(current.dependencies) && current.dependencies.length > 0) continue
+      const previous = featureStories[i - 1]
+      current.dependencies = [
+        {
+          type: 'Blocks',
+          story: previous?.title,
+          crossTeam: i % 3 === 0,
+          ageDays: 2 + (i * 2)
+        }
+      ]
+    }
+  }
+
+  const dependencyLinks = orderedStories.flatMap((story) =>
+    (story.dependencies || []).map((dep) => ({
+      ...dep,
+      sourceStory: story.title,
+      ageDays: Number(dep?.ageDays || 0) || 0,
+      crossTeam: Boolean(dep?.crossTeam)
+    }))
+  )
+
+  const dependencyMetrics = {
+    blockedStories: orderedStories.filter((story) => (story.dependencies || []).length > 0).length,
+    crossTeamLinks: dependencyLinks.filter((dep) => dep.crossTeam).length,
+    agingBlockers: dependencyLinks.filter((dep) => dep.ageDays >= 7).length
+  }
+  dependencyMetrics.heatScore = Number(
+    (dependencyMetrics.blockedStories * 2 + dependencyMetrics.crossTeamLinks * 3 + dependencyMetrics.agingBlockers * 4).toFixed(2)
+  )
+
+  const workTypePoints = orderedStories.reduce((acc, story) => {
+    const bucket = story.workType === 'Enabler'
+      ? 'enabler'
+      : story.workType === 'Defect-Risk'
+        ? 'defectRisk'
+        : 'business'
+    const points = Number(story?.points || 0) || 0
+    acc[bucket] += points
+    return acc
+  }, { business: 0, enabler: 0, defectRisk: 0 })
+  const totalPoints = Number((workTypePoints.business + workTypePoints.enabler + workTypePoints.defectRisk).toFixed(2))
+  const capacityActual = {
+    ...workTypePoints,
+    totalPoints,
+    businessPercent: totalPoints > 0 ? Number(((workTypePoints.business / totalPoints) * 100).toFixed(2)) : 0,
+    enablerPercent: totalPoints > 0 ? Number(((workTypePoints.enabler / totalPoints) * 100).toFixed(2)) : 0,
+    defectRiskPercent: totalPoints > 0 ? Number(((workTypePoints.defectRisk / totalPoints) * 100).toFixed(2)) : 0
+  }
+
+  const enrichedFeatures = orderedFeatures.map((feature) => {
+    const ranking = wsjfByFeature.get(String(feature?.title || ''))
+    return {
+      ...feature,
+      workType: ranking?.workType || inferWorkType(feature),
+      wsjf: ranking
+        ? {
+          businessValue: ranking.businessValue,
+          timeCriticality: ranking.timeCriticality,
+          riskReductionOpportunity: ranking.riskReductionOpportunity,
+          jobSize: ranking.jobSize,
+          score: ranking.wsjfScore
+        }
+        : undefined,
+      wsjfScore: ranking?.wsjfScore || 0
+    }
+  })
+
+  return {
+    backlog: {
+      ...backlog,
+      features: enrichedFeatures,
+      userStories: orderedStories
+    },
+    wsjfSummary: {
+      rankedAt: nowIso(),
+      totalFeatures: wsjfRankings.length,
+      rankings: wsjfRankings.sort((a, b) => b.wsjfScore - a.wsjfScore)
+    },
+    dependencyMetrics,
+    capacityActual
+  }
+}
+
+function buildSafeControls(br, overrides = {}) {
+  const piName = String(overrides?.piName || br?.safe_pi_name || DEFAULT_PI_NAME).trim()
+  const artName = String(overrides?.artName || br?.safe_art_name || DEFAULT_ART_NAME).trim()
+
+  const dorDefaults = {
+    brdApproved: String(br?.requirement_review_status || '').toLowerCase() === 'approved',
+    wsjfRanked: true,
+    dependenciesReviewed: true,
+    capacityPlanned: true,
+    architectureRunwayReady: true,
+    nfrAligned: true
+  }
+
+  const dodDefaults = {
+    acceptanceCriteriaReady: String(br?.user_story_status || '').toLowerCase().includes('created'),
+    testEvidenceReady: String(br?.task_status || '').toLowerCase().includes('created'),
+    releasePlanReady: String(br?.sprint_status || '').toLowerCase().includes('prepared'),
+    observabilityReady: false,
+    securityReviewComplete: false,
+    opsHandoverReady: false
+  }
+
+  const storedDor = parseJsonObject(br?.safe_dor_checks)
+  const storedDod = parseJsonObject(br?.safe_dod_checks)
+  const overrideDor = parseJsonObject(overrides?.dorChecks)
+  const overrideDod = parseJsonObject(overrides?.dodChecks)
+  const storedCapacity = normalizeCapacityGuardrails(br?.safe_capacity_guardrails)
+  const overrideCapacity = overrides?.capacityGuardrails
+    ? normalizeCapacityGuardrails(overrides.capacityGuardrails)
+    : null
+
+  const dorChecks = {
+    brdApproved: safeBool(overrideDor.brdApproved, safeBool(storedDor.brdApproved, dorDefaults.brdApproved)),
+    wsjfRanked: safeBool(overrideDor.wsjfRanked, safeBool(storedDor.wsjfRanked, dorDefaults.wsjfRanked)),
+    dependenciesReviewed: safeBool(overrideDor.dependenciesReviewed, safeBool(storedDor.dependenciesReviewed, dorDefaults.dependenciesReviewed)),
+    capacityPlanned: safeBool(overrideDor.capacityPlanned, safeBool(storedDor.capacityPlanned, dorDefaults.capacityPlanned)),
+    architectureRunwayReady: safeBool(overrideDor.architectureRunwayReady, safeBool(storedDor.architectureRunwayReady, dorDefaults.architectureRunwayReady)),
+    nfrAligned: safeBool(overrideDor.nfrAligned, safeBool(storedDor.nfrAligned, dorDefaults.nfrAligned))
+  }
+
+  const dodChecks = {
+    acceptanceCriteriaReady: safeBool(overrideDod.acceptanceCriteriaReady, safeBool(storedDod.acceptanceCriteriaReady, dodDefaults.acceptanceCriteriaReady)),
+    testEvidenceReady: safeBool(overrideDod.testEvidenceReady, safeBool(storedDod.testEvidenceReady, dodDefaults.testEvidenceReady)),
+    releasePlanReady: safeBool(overrideDod.releasePlanReady, safeBool(storedDod.releasePlanReady, dodDefaults.releasePlanReady)),
+    observabilityReady: safeBool(overrideDod.observabilityReady, safeBool(storedDod.observabilityReady, dodDefaults.observabilityReady)),
+    securityReviewComplete: safeBool(overrideDod.securityReviewComplete, safeBool(storedDod.securityReviewComplete, dodDefaults.securityReviewComplete)),
+    opsHandoverReady: safeBool(overrideDod.opsHandoverReady, safeBool(storedDod.opsHandoverReady, dodDefaults.opsHandoverReady))
+  }
+
+  const capacityGuardrails = overrideCapacity || storedCapacity || {
+    ...DEFAULT_CAPACITY_GUARDRAILS,
+    total: 100
+  }
+
+  return {
+    piName: piName || DEFAULT_PI_NAME,
+    artName: artName || DEFAULT_ART_NAME,
+    dorChecks,
+    dodChecks,
+    capacityGuardrails
+  }
+}
+
+function validateDorGate({ controls, wsjfSummary, dependencyMetrics, capacityActual }) {
+  const checks = {
+    ...controls.dorChecks,
+    wsjfRanked: Boolean(controls.dorChecks.wsjfRanked && Number(wsjfSummary?.totalFeatures || 0) > 0),
+    dependenciesReviewed: Boolean(controls.dorChecks.dependenciesReviewed && dependencyMetrics),
+    capacityPlanned: Boolean(controls.dorChecks.capacityPlanned && Number(capacityActual?.totalPoints || 0) > 0),
+    architectureRunwayReady: Boolean(controls.dorChecks.architectureRunwayReady),
+    nfrAligned: Boolean(controls.dorChecks.nfrAligned)
+  }
+
+  const missing = Object.entries(checks).filter(([, ok]) => !ok).map(([key]) => key)
+  return {
+    passed: missing.length === 0,
+    checks,
+    missing
+  }
+}
+
+function validateDodGate(controls) {
+  const checks = Object.entries(controls.dodChecks || {}).reduce((acc, [key, value]) => {
+    acc[key] = Boolean(value)
+    return acc
+  }, {})
+  const missing = Object.entries(checks).filter(([, ok]) => !ok).map(([key]) => key)
+  return {
+    passed: missing.length === 0,
+    checks,
+    missing
+  }
+}
+
+function validateCapacityGuardrails({ guardrails, capacityActual, maxDeviation = 35 }) {
+  const effectiveDeviation = Number(guardrails?.maxDeviation ?? maxDeviation)
+  const total = Number(guardrails?.total || 0)
+  if (Math.abs(total - 100) > 0.2) {
+    return {
+      passed: false,
+      reason: `Capacity guardrails must total 100 (current: ${total})`,
+      deviations: []
+    }
+  }
+
+  if (!capacityActual || Number(capacityActual.totalPoints || 0) <= 0) {
+    return {
+      passed: false,
+      reason: 'No story point allocation available to validate capacity guardrails',
+      deviations: []
+    }
+  }
+
+  const deviations = [
+    { key: 'business', target: Number(guardrails.business || 0), actual: Number(capacityActual.businessPercent || 0) },
+    { key: 'enabler', target: Number(guardrails.enabler || 0), actual: Number(capacityActual.enablerPercent || 0) },
+    { key: 'defectRisk', target: Number(guardrails.defectRisk || 0), actual: Number(capacityActual.defectRiskPercent || 0) }
+  ].map((item) => ({
+    ...item,
+    deviation: Number(Math.abs(item.actual - item.target).toFixed(2))
+  }))
+
+  const failed = deviations.filter((item) => item.deviation > effectiveDeviation)
+  return {
+    passed: failed.length === 0,
+    reason: failed.length > 0
+      ? `Capacity allocation deviates beyond ${effectiveDeviation}% for: ${failed.map((x) => x.key).join(', ')}`
+      : null,
+    deviations,
+    maxDeviation: effectiveDeviation
+  }
+}
+
+function finiteNumber(value, fallback = 0) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function evaluateAssignmentReadiness(syncSummary) {
+  const summary = parseJsonObject(syncSummary)
+  const metadata = parseJsonObject(summary?.adoMetadata)
+  const coverage = parseJsonObject(metadata?.assignmentCoverage)
+  const pool = unique(Array.isArray(coverage?.assigneePool) ? coverage.assigneePool : [])
+  const byAssignee = coverage?.byAssignee && typeof coverage.byAssignee === 'object'
+    ? coverage.byAssignee
+    : {}
+
+  const storiesTotal = finiteNumber(coverage?.storiesTotal, 0)
+  const storiesAssigned = finiteNumber(coverage?.storiesAssigned, 0)
+  const tasksTotal = finiteNumber(coverage?.tasksTotal, 0)
+  const tasksAssigned = finiteNumber(coverage?.tasksAssigned, 0)
+  const storiesAssignedRatio = storiesTotal > 0
+    ? Number((storiesAssigned / storiesTotal).toFixed(2))
+    : finiteNumber(coverage?.storiesAssignedRatio, 0)
+  const tasksAssignedRatio = tasksTotal > 0
+    ? Number((tasksAssigned / tasksTotal).toFixed(2))
+    : finiteNumber(coverage?.tasksAssignedRatio, 0)
+  const uniqueAssigneesUsed = Object.values(byAssignee).filter((row) => finiteNumber(row?.total, 0) > 0).length
+  const expectedUniqueAssignees = pool.length > 1 ? 2 : 1
+
+  const issues = []
+  if (storiesTotal <= 0) {
+    issues.push('No ADO user stories were created during backlog sync')
+  }
+  if (storiesAssignedRatio < 1) {
+    issues.push(`Story assignment coverage is ${storiesAssigned}/${storiesTotal}`)
+  }
+  if (tasksTotal > 0 && tasksAssignedRatio < 1) {
+    issues.push(`Task assignment coverage is ${tasksAssigned}/${tasksTotal}`)
+  }
+  if (pool.length <= 0) {
+    issues.push('No assignable ADO assignee pool was resolved')
+  }
+  if (uniqueAssigneesUsed < expectedUniqueAssignees) {
+    issues.push(`Assignment spread is ${uniqueAssigneesUsed} unique assignee(s), expected at least ${expectedUniqueAssignees}`)
+  }
+
+  return {
+    passed: issues.length === 0,
+    issues,
+    assigneePool: pool,
+    expectedUniqueAssignees,
+    uniqueAssigneesUsed,
+    storiesTotal,
+    storiesAssigned,
+    storiesAssignedRatio,
+    tasksTotal,
+    tasksAssigned,
+    tasksAssignedRatio
+  }
+}
+
+function evaluateSingleAssigneeFallback(readiness) {
+  const state = parseJsonObject(readiness)
+  const issues = Array.isArray(state?.issues) ? state.issues : []
+  const onlySpreadIssue = issues.length === 1 && /assignment spread is \d+ unique assignee\(s\), expected at least \d+/i.test(String(issues[0] || ''))
+  const uniqueAssigneesUsed = finiteNumber(state?.uniqueAssigneesUsed, 0)
+  const expectedUniqueAssignees = finiteNumber(state?.expectedUniqueAssignees, 1)
+  const storiesAssignedRatio = finiteNumber(state?.storiesAssignedRatio, 0)
+  const tasksTotal = finiteNumber(state?.tasksTotal, 0)
+  const tasksAssignedRatio = finiteNumber(state?.tasksAssignedRatio, 0)
+  const tasksFullyAssigned = tasksTotal <= 0 || tasksAssignedRatio >= 1
+
+  const allowed = Boolean(
+    !state?.passed &&
+    onlySpreadIssue &&
+    uniqueAssigneesUsed === 1 &&
+    expectedUniqueAssignees === 2 &&
+    storiesAssignedRatio >= 1 &&
+    tasksFullyAssigned
+  )
+
+  return {
+    allowed,
+    reason: allowed
+      ? 'Single-assignee fallback applied because tenant policy blocks multi-user entitlement in ADO.'
+      : null
+  }
+}
+
+function formatCreationStatus(count, errorCount) {
+  const safeCount = Number(count || 0)
+  const safeErrors = Number(errorCount || 0)
+  if (safeCount <= 0 && safeErrors > 0) return 'Failed'
+  if (safeCount <= 0) return 'Not Created'
+  return `${safeErrors > 0 ? 'Created with Warnings' : 'Created'} (${safeCount})`
+}
+
+async function reloadBusinessRequest(id) {
+  return withDb(async (db) => {
+    return dbGet(db, 'SELECT * FROM business_requests WHERE id = ?', [id])
+  })
+}
+
+async function runBacklogSyncForBr({ req, id, br, operator, teamName, sprintName, piName, artName, dorChecks, dodChecks, capacityGuardrails }) {
+  const approved = String(br?.requirement_review_status || '').toLowerCase() === 'approved'
+  if (!approved) {
+    throw new Error('BRD review must be approved before ADO backlog sync')
+  }
+
+  const resolved = resolveTeamAndSprint(br, { teamName, sprintName })
+  const safeControls = buildSafeControls(br, {
+    piName,
+    artName,
+    dorChecks,
+    dodChecks,
+    capacityGuardrails
+  })
+
+  await writeLog({
+    id,
+    stage: 'ADO Backlog Sync',
+    actor: operator,
+    eventType: 'info',
+    message: 'Backlog hierarchy sync started',
+    details: {
+      teamName: resolved.teamName,
+      sprintName: resolved.sprintName,
+      piName: safeControls.piName,
+      artName: safeControls.artName
+    }
+  })
+
+  const backlogResponse = await postLocalJson({
+    req,
+    apiPath: '/api/scrum-master',
+    payload: { brId: id },
+    timeoutMs: 60000
+  })
+  const backlog = backlogResponse?.backlog || null
+  if (!backlog) {
+    throw new Error('Backlog generator returned no backlog payload')
+  }
+
+  const safeBacklog = enrichBacklogWithSafeMetrics(backlog, br)
+  const enrichedBacklog = safeBacklog.backlog
+
+  const pointMetrics = calculateStoryPointMetrics(enrichedBacklog)
+
+  const adoSync = await postLocalJson({
+    req,
+    apiPath: '/api/create-ado-backlog',
+    payload: {
+      backlog: enrichedBacklog,
+      teamName: resolved.teamName,
+      sprintName: resolved.sprintName,
+      brId: id,
+      piName: safeControls.piName,
+      artName: safeControls.artName
+    },
+    timeoutMs: 180000
+  })
+
+  const summary = adoSync?.summary || {}
+  const results = adoSync?.results || {}
+  const metadata = adoSync?.metadata || {}
+
+  const epicsCreated = Number(summary.epicsCreated || 0)
+  const featuresCreated = Number(summary.featuresCreated || 0)
+  const storiesCreated = Number(summary.userStoriesCreated || 0)
+  const tasksCreated = Number(summary.tasksCreated || 0)
+  const errors = Number(summary.errors || 0)
+  const synced = epicsCreated > 0 || featuresCreated > 0 || storiesCreated > 0
+
+  const config = loadAdoConfig()
+  const adoUrls = buildAdoUrls(config, resolved.teamName)
+
+  const previousSummary = parseJsonObject(br?.ado_sync_summary)
+  const syncSummary = {
+    ...previousSummary,
+    lastSyncedAt: nowIso(),
+    piName: safeControls.piName,
+    artName: safeControls.artName,
+    teamName: resolved.teamName,
+    sprintName: resolved.sprintName,
+    storyPointsTotal: pointMetrics.totalPoints,
+    weightedPointsTotal: pointMetrics.weightedPoints,
+    wsjfSummary: safeBacklog.wsjfSummary,
+    dependencyMetrics: safeBacklog.dependencyMetrics,
+    capacityActual: safeBacklog.capacityActual,
+    safeControls,
+    adoSummary: summary,
+    adoMetadata: metadata,
+    createdIds: {
+      epics: (results.epics || []).map((x) => x.id),
+      features: (results.features || []).map((x) => x.id),
+      userStories: (results.userStories || []).map((x) => x.id),
+      tasks: (results.tasks || []).map((x) => x.id)
+    },
+    links: adoUrls
+  }
+
+  const primaryBacklogId =
+    String(results?.epics?.[0]?.id || '') ||
+    String(results?.features?.[0]?.id || '') ||
+    String(results?.userStories?.[0]?.id || '') ||
+    null
+
+  await updateBr(id, {
+    synced_to_ado: synced ? 1 : 0,
+    ado_backlog_id: primaryBacklogId,
+    team_name: resolved.teamName,
+    sprint_name: resolved.sprintName,
+    safe_pi_name: safeControls.piName,
+    safe_art_name: safeControls.artName,
+    safe_dor_checks: JSON.stringify(safeControls.dorChecks),
+    safe_dod_checks: JSON.stringify(safeControls.dodChecks),
+    safe_capacity_guardrails: JSON.stringify(safeControls.capacityGuardrails),
+    safe_wsjf_summary: JSON.stringify(safeBacklog.wsjfSummary),
+    safe_dependency_metrics: JSON.stringify(safeBacklog.dependencyMetrics),
+    epic_status: formatCreationStatus(epicsCreated, errors),
+    feature_status: formatCreationStatus(featuresCreated, errors),
+    user_story_status: formatCreationStatus(storiesCreated, errors),
+    task_status: formatCreationStatus(tasksCreated, errors),
+    sprint_status: metadata?.iterationPath
+      ? `Assigned to ${resolved.sprintName || 'selected sprint'}`
+      : 'Iteration unresolved (created in backlog only)',
+    story_points_total: pointMetrics.totalPoints,
+    weighted_points_total: pointMetrics.weightedPoints,
+    ado_iteration_path: metadata?.iterationPath || null,
+    ado_assigned_to: metadata?.assignmentCoverage?.primaryAssignee || metadata?.assignedTo || null,
+    ado_sync_summary: JSON.stringify(syncSummary),
+    ado_board_url: adoUrls.boardUrl,
+    ado_dashboard_url: adoUrls.dashboardsUrl,
+    workflow_current_stage: synced ? 'Backlog Synced to ADO' : 'Ready for Epic Scoping'
+  })
+
+  await writeLog({
+    id,
+    stage: 'ADO Backlog Sync',
+    actor: operator,
+    eventType: errors > 0 ? 'warning' : 'success',
+    message: errors > 0 ? 'Backlog hierarchy synced with warnings' : 'Backlog hierarchy synced to ADO',
+    details: {
+      teamName: resolved.teamName,
+      sprintName: resolved.sprintName,
+      epicsCreated,
+      featuresCreated,
+      storiesCreated,
+      tasksCreated,
+      errors,
+      storyPointsTotal: pointMetrics.totalPoints,
+      weightedPointsTotal: pointMetrics.weightedPoints,
+      wsjfFeaturesRanked: Number(safeBacklog.wsjfSummary?.totalFeatures || 0),
+      dependencyHeatScore: Number(safeBacklog.dependencyMetrics?.heatScore || 0),
+      assignedTo: metadata?.assignmentCoverage?.primaryAssignee || metadata?.assignedTo || null,
+      assignedCoverage: metadata?.assignmentCoverage || null
+    }
+  })
+
+  return {
+    summary,
+    metadata,
+    links: adoUrls,
+    points: pointMetrics,
+    wsjfSummary: safeBacklog.wsjfSummary,
+    dependencyMetrics: safeBacklog.dependencyMetrics,
+    capacityActual: safeBacklog.capacityActual,
+    warnings: results?.warnings || [],
+    errors: results?.errors || []
+  }
+}
+
+async function runSprintPreparationForBr({ req, id, br, operator, teamName, sprintName, piName, artName, dorChecks, dodChecks, capacityGuardrails }) {
+  const resolved = resolveTeamAndSprint(br, { teamName, sprintName })
+  const safeControls = buildSafeControls(br, {
+    piName,
+    artName,
+    dorChecks,
+    dodChecks,
+    capacityGuardrails
+  })
+  const previousSummary = parseJsonObject(br?.ado_sync_summary)
+  const wsjfSummary = parseJsonObject(br?.safe_wsjf_summary)
+  const dependencyMetrics = parseJsonObject(br?.safe_dependency_metrics)
+  const capacityActual = parseJsonObject(previousSummary?.capacityActual)
+
+  const dorGate = validateDorGate({
+    controls: safeControls,
+    wsjfSummary,
+    dependencyMetrics,
+    capacityActual
+  })
+  if (!dorGate.passed) {
+    throw new Error(`DoR gate failed: ${dorGate.missing.join(', ')}`)
+  }
+
+  const capacityValidation = validateCapacityGuardrails({
+    guardrails: safeControls.capacityGuardrails,
+    capacityActual
+  })
+  if (!capacityValidation.passed) {
+    throw new Error(`Capacity guardrail validation failed: ${capacityValidation.reason}`)
+  }
+
+  await writeLog({
+    id,
+    stage: 'Sprint Preparation',
+    actor: operator,
+    eventType: 'info',
+    message: 'Sprint provisioning started',
+    details: {
+      teamName: resolved.teamName,
+      sprintName: resolved.sprintName,
+      piName: safeControls.piName,
+      artName: safeControls.artName,
+      dorGate,
+      capacityValidation
+    }
+  })
+
+  const provision = await postLocalJson({
+    req,
+    apiPath: '/api/ado-provision',
+    payload: { userEmails: [] },
+    timeoutMs: 240000
+  })
+
+  const report = provision?.report || {}
+  const assignmentRows = Array.isArray(report?.sprintAssignments) ? report.sprintAssignments : []
+  const assignmentNeedle = resolved.sprintName && resolved.teamName
+    ? `${resolved.sprintName} -> ${resolved.teamName}`.toLowerCase()
+    : ''
+
+  const sprintBound = assignmentNeedle
+    ? assignmentRows.some((row) => String(row || '').toLowerCase().startsWith(assignmentNeedle))
+    : assignmentRows.length > 0
+
+  const config = loadAdoConfig()
+  const adoUrls = buildAdoUrls(config, resolved.teamName)
+
+  const provisionSummary = {
+    teamsCreated: Number((report?.teamsCreated || []).length),
+    teamsExisting: Number((report?.teamsExisting || []).length),
+    sprintsCreated: Number((report?.sprintsCreated || []).length),
+    sprintsExisting: Number((report?.sprintsExisting || []).length),
+    warnings: Array.isArray(report?.warnings) ? report.warnings.slice(0, 20) : []
+  }
+
+  const assignmentReadiness = evaluateAssignmentReadiness(previousSummary)
+  const singleAssigneeFallback = evaluateSingleAssigneeFallback(assignmentReadiness)
+  const assignmentReadyForExecution = assignmentReadiness.passed || singleAssigneeFallback.allowed
+
+  const mergedSummary = {
+    ...previousSummary,
+    links: {
+      ...(previousSummary?.links || {}),
+      ...adoUrls
+    },
+    sprintProvisioning: {
+      preparedAt: nowIso(),
+      teamName: resolved.teamName,
+      sprintName: resolved.sprintName,
+      sprintBound,
+      assignmentReadiness,
+      singleAssigneeFallback,
+      dorGate,
+      capacityValidation,
+      summary: provisionSummary
+    }
+  }
+
+  const sprintStatus = sprintBound && assignmentReadyForExecution
+    ? `Sprint ${resolved.sprintName || ''} prepared`
+    : 'Provisioned with warnings'
+
+  await updateBr(id, {
+    team_name: resolved.teamName,
+    sprint_name: resolved.sprintName,
+    safe_pi_name: safeControls.piName,
+    safe_art_name: safeControls.artName,
+    safe_dor_checks: JSON.stringify(safeControls.dorChecks),
+    safe_dod_checks: JSON.stringify(safeControls.dodChecks),
+    safe_capacity_guardrails: JSON.stringify(safeControls.capacityGuardrails),
+    sprint_status: sprintStatus,
+    ado_sync_summary: JSON.stringify(mergedSummary),
+    ado_board_url: adoUrls.boardUrl,
+    ado_dashboard_url: adoUrls.dashboardsUrl,
+    workflow_current_stage: sprintBound && assignmentReadyForExecution
+      ? 'Sprint Ready for Execution'
+      : (br.workflow_current_stage || 'Backlog Synced to ADO')
+  })
+
+  await writeLog({
+    id,
+    stage: 'Sprint Preparation',
+    actor: operator,
+    eventType: sprintBound && assignmentReadyForExecution ? 'success' : 'warning',
+    message: sprintBound && assignmentReadyForExecution
+      ? 'Sprint provisioning completed and linked to team'
+      : 'Sprint provisioning completed with warnings',
+    details: {
+      teamName: resolved.teamName,
+      sprintName: resolved.sprintName,
+      sprintBound,
+      assignmentReadiness,
+      singleAssigneeFallback,
+      dorGate,
+      capacityValidation,
+      warningCount: provisionSummary.warnings.length
+    }
+  })
+
+  return {
+    sprintBound,
+    assignmentReadiness,
+    singleAssigneeFallback,
+    report,
+    links: adoUrls
+  }
 }
 
 async function getOllamaModels(baseUrl) {
@@ -609,7 +1503,23 @@ export default async function handler(req, res) {
     return res.status(405).json({ message: 'Method not allowed' })
   }
 
-  const { action, id, decision, reason, brdUrl, brdSummary, brdDetails, triggeredBy } = req.body || {}
+  const {
+    action,
+    id,
+    decision,
+    reason,
+    brdUrl,
+    brdSummary,
+    brdDetails,
+    triggeredBy,
+    teamName,
+    sprintName,
+    piName,
+    artName,
+    dorChecks,
+    dodChecks,
+    capacityGuardrails
+  } = req.body || {}
   if (!action || !id) {
     return res.status(400).json({ message: 'Missing action or id' })
   }
@@ -951,7 +1861,312 @@ export default async function handler(req, res) {
         details: { reason: reason || null, adoWorkItemId: ado.workItemId || null, triggeredBy: operator }
       })
 
-      return res.status(200).json({ success: true, approved, ado })
+      let backlogSync = null
+      let sprintPreparation = null
+      let automationWarning = null
+
+      if (approved) {
+        try {
+          const refreshed = await reloadBusinessRequest(id)
+          backlogSync = await runBacklogSyncForBr({
+            req,
+            id,
+            br: refreshed,
+            operator: persona.name,
+            teamName,
+            sprintName,
+            piName,
+            artName,
+            dorChecks,
+            dodChecks,
+            capacityGuardrails
+          })
+
+          const afterBacklog = await reloadBusinessRequest(id)
+          sprintPreparation = await runSprintPreparationForBr({
+            req,
+            id,
+            br: afterBacklog,
+            operator: persona.name,
+            teamName,
+            sprintName,
+            piName,
+            artName,
+            dorChecks,
+            dodChecks,
+            capacityGuardrails
+          })
+        } catch (automationErr) {
+          automationWarning = formatError(automationErr)
+          await writeLog({
+            id,
+            stage: 'Post-BRD Automation',
+            actor: persona.name,
+            eventType: 'warning',
+            message: 'Post-BRD ADO automation partially failed',
+            details: {
+              error: automationWarning,
+              triggeredBy: operator
+            }
+          })
+        }
+      }
+
+      return res.status(200).json({
+        success: true,
+        approved,
+        ado,
+        backlogSync,
+        sprintPreparation,
+        warning: automationWarning
+      })
+    }
+
+    if (action === 'sync-backlog') {
+      const refreshed = await reloadBusinessRequest(id)
+      const syncResult = await runBacklogSyncForBr({
+        req,
+        id,
+        br: refreshed,
+        operator,
+        teamName,
+        sprintName,
+        piName,
+        artName,
+        dorChecks,
+        dodChecks,
+        capacityGuardrails
+      })
+
+      return res.status(200).json({
+        success: true,
+        synced: true,
+        result: syncResult
+      })
+    }
+
+    if (action === 'prepare-sprint') {
+      const refreshed = await reloadBusinessRequest(id)
+      const prepResult = await runSprintPreparationForBr({
+        req,
+        id,
+        br: refreshed,
+        operator,
+        teamName,
+        sprintName,
+        piName,
+        artName,
+        dorChecks,
+        dodChecks,
+        capacityGuardrails
+      })
+
+      return res.status(200).json({
+        success: true,
+        prepared: true,
+        result: prepResult
+      })
+    }
+
+    if (action === 'start-sprint') {
+      const refreshed = await reloadBusinessRequest(id)
+      const resolved = resolveTeamAndSprint(refreshed, { teamName, sprintName })
+      const previousSummary = parseJsonObject(refreshed?.ado_sync_summary)
+      const sprintProvisioning = parseJsonObject(previousSummary?.sprintProvisioning)
+      const assignmentReadinessFromProvisioning = parseJsonObject(sprintProvisioning?.assignmentReadiness)
+      const assignmentReadiness = assignmentReadinessFromProvisioning?.issues
+        ? assignmentReadinessFromProvisioning
+        : evaluateAssignmentReadiness(previousSummary)
+      const singleAssigneeFallbackFromProvisioning = parseJsonObject(sprintProvisioning?.singleAssigneeFallback)
+      const singleAssigneeFallback = singleAssigneeFallbackFromProvisioning?.reason
+        ? singleAssigneeFallbackFromProvisioning
+        : evaluateSingleAssigneeFallback(assignmentReadiness)
+      const iterationPath = String(previousSummary?.adoMetadata?.iterationPath || '').trim()
+
+      if (!Boolean(sprintProvisioning?.sprintBound)) {
+        throw new Error('Sprint is not bound to the selected ADO team. Run Prepare Sprint in ADO first.')
+      }
+      if (!iterationPath) {
+        throw new Error('ADO iteration path is unresolved. Re-run backlog sync with a valid team and sprint.')
+      }
+      if (!assignmentReadiness.passed && !singleAssigneeFallback.allowed) {
+        throw new Error(`ADO assignment readiness failed: ${assignmentReadiness.issues.join('; ')}`)
+      }
+
+      const safeControls = buildSafeControls(refreshed, {
+        piName,
+        artName,
+        dorChecks,
+        dodChecks,
+        capacityGuardrails
+      })
+      const dodGate = validateDodGate(safeControls)
+      if (!dodGate.passed) {
+        throw new Error(`DoD gate failed: ${dodGate.missing.join(', ')}`)
+      }
+
+      await updateBr(id, {
+        team_name: resolved.teamName,
+        sprint_name: resolved.sprintName,
+        safe_pi_name: safeControls.piName,
+        safe_art_name: safeControls.artName,
+        safe_dor_checks: JSON.stringify(safeControls.dorChecks),
+        safe_dod_checks: JSON.stringify(safeControls.dodChecks),
+        safe_capacity_guardrails: JSON.stringify(safeControls.capacityGuardrails),
+        sprint_status: `In Progress - ${resolved.sprintName || 'Current Sprint'}`,
+        workflow_current_stage: 'Sprint Running',
+        ado_sync_summary: JSON.stringify({
+          ...previousSummary,
+          sprintExecution: {
+            startedAt: nowIso(),
+            startedBy: operator,
+            teamName: resolved.teamName,
+            sprintName: resolved.sprintName,
+            assignmentReadiness,
+            singleAssigneeFallback
+          }
+        })
+      })
+
+      await writeLog({
+        id,
+        stage: 'Sprint Execution',
+        actor: operator,
+        eventType: 'success',
+        message: 'Sprint started',
+        details: {
+          teamName: resolved.teamName,
+          sprintName: resolved.sprintName,
+          dodGate,
+          assignmentReadiness,
+          singleAssigneeFallback
+        }
+      })
+
+      return res.status(200).json({
+        success: true,
+        started: true,
+        teamName: resolved.teamName,
+        sprintName: resolved.sprintName,
+        assignmentReadiness,
+        singleAssigneeFallback
+      })
+    }
+
+    if (action === 'complete-sprint') {
+      const refreshed = await reloadBusinessRequest(id)
+      const sprintStatus = String(refreshed?.sprint_status || '').toLowerCase()
+      if (!sprintStatus.includes('in progress') && !String(refreshed?.workflow_current_stage || '').toLowerCase().includes('sprint running')) {
+        throw new Error('Sprint must be running before completion')
+      }
+
+      const resolved = resolveTeamAndSprint(refreshed, { teamName, sprintName })
+      const safeControls = buildSafeControls(refreshed, {
+        piName,
+        artName,
+        dorChecks,
+        dodChecks,
+        capacityGuardrails
+      })
+      const previousSummary = parseJsonObject(refreshed?.ado_sync_summary)
+
+      await updateBr(id, {
+        team_name: resolved.teamName,
+        sprint_name: resolved.sprintName,
+        safe_pi_name: safeControls.piName,
+        safe_art_name: safeControls.artName,
+        safe_dor_checks: JSON.stringify(safeControls.dorChecks),
+        safe_dod_checks: JSON.stringify(safeControls.dodChecks),
+        safe_capacity_guardrails: JSON.stringify(safeControls.capacityGuardrails),
+        sprint_status: `Completed - ${resolved.sprintName || 'Current Sprint'}`,
+        workflow_current_stage: 'Release Governance',
+        ado_sync_summary: JSON.stringify({
+          ...previousSummary,
+          sprintClosure: {
+            closedAt: nowIso(),
+            teamName: resolved.teamName,
+            sprintName: resolved.sprintName,
+            closedBy: operator
+          }
+        })
+      })
+
+      await writeLog({
+        id,
+        stage: 'Sprint Closure',
+        actor: operator,
+        eventType: 'success',
+        message: 'Sprint marked as completed',
+        details: {
+          teamName: resolved.teamName,
+          sprintName: resolved.sprintName
+        }
+      })
+
+      return res.status(200).json({
+        success: true,
+        completed: true,
+        teamName: resolved.teamName,
+        sprintName: resolved.sprintName
+      })
+    }
+
+    if (action === 'close-delivery') {
+      const refreshed = await reloadBusinessRequest(id)
+      const sprintStatus = String(refreshed?.sprint_status || '').toLowerCase()
+      const currentStage = String(refreshed?.workflow_current_stage || '').toLowerCase()
+      if (!sprintStatus.includes('completed') && !currentStage.includes('release governance')) {
+        throw new Error('Complete sprint before closing delivery')
+      }
+
+      const safeControls = buildSafeControls(refreshed, {
+        piName,
+        artName,
+        dorChecks,
+        dodChecks,
+        capacityGuardrails
+      })
+      const dodGate = validateDodGate(safeControls)
+      if (!dodGate.passed) {
+        throw new Error(`Release sign-off blocked by DoD gate: ${dodGate.missing.join(', ')}`)
+      }
+
+      const previousSummary = parseJsonObject(refreshed?.ado_sync_summary)
+      await updateBr(id, {
+        safe_pi_name: safeControls.piName,
+        safe_art_name: safeControls.artName,
+        safe_dor_checks: JSON.stringify(safeControls.dorChecks),
+        safe_dod_checks: JSON.stringify(safeControls.dodChecks),
+        safe_capacity_guardrails: JSON.stringify(safeControls.capacityGuardrails),
+        sprint_status: 'Closed - Value Delivered',
+        workflow_current_stage: 'Closed - Value Delivered',
+        ado_sync_summary: JSON.stringify({
+          ...previousSummary,
+          releaseGovernance: {
+            signedOffAt: nowIso(),
+            signedOffBy: operator,
+            dodGate
+          }
+        })
+      })
+
+      await writeLog({
+        id,
+        stage: 'Release Governance',
+        actor: operator,
+        eventType: 'success',
+        message: 'Delivery lifecycle closed with governance sign-off',
+        details: {
+          dodGate,
+          closedAt: nowIso()
+        }
+      })
+
+      return res.status(200).json({
+        success: true,
+        closed: true,
+        workflowStage: 'Closed - Value Delivered'
+      })
     }
 
     return res.status(400).json({ message: `Unknown action: ${action}` })

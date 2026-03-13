@@ -18,6 +18,99 @@ function safeParseRequirementDetails(value) {
   }
 }
 
+function inferWorkTypeFromText(value) {
+  const text = String(value || '').toLowerCase()
+  if (text.includes('compliance') || text.includes('audit') || text.includes('risk') || text.includes('defect') || text.includes('bug')) {
+    return 'Defect-Risk'
+  }
+  if (text.includes('automation') || text.includes('platform') || text.includes('architecture') || text.includes('integration') || text.includes('workflow')) {
+    return 'Enabler'
+  }
+  return 'Business'
+}
+
+function mapUrgencyToTimeCriticality(urgency) {
+  const normalized = String(urgency || '').toLowerCase()
+  if (normalized.includes('high')) return 20
+  if (normalized.includes('low')) return 8
+  return 13
+}
+
+function mapPriorityToBusinessValue(priority) {
+  const normalized = String(priority || '').toLowerCase()
+  if (normalized.includes('high')) return 20
+  if (normalized.includes('low')) return 8
+  return 13
+}
+
+function applySafeSignals(features, userStories, urgency) {
+  const urgencyScore = mapUrgencyToTimeCriticality(urgency)
+  const storiesByFeature = new Map()
+  for (const story of userStories) {
+    const key = String(story.feature || '').trim()
+    if (!storiesByFeature.has(key)) storiesByFeature.set(key, [])
+    storiesByFeature.get(key).push(story)
+  }
+
+  const enrichedFeatures = features.map((feature) => {
+    const workType = inferWorkTypeFromText(`${feature.title || ''} ${feature.description || ''}`)
+    const featureStories = storiesByFeature.get(String(feature.title || '').trim()) || []
+    const storyPoints = featureStories.reduce((sum, story) => sum + (Number(story.points || 0) || 0), 0)
+    const jobSize = Math.max(3, Math.round(storyPoints || featureStories.length || 3))
+    const businessValue = mapPriorityToBusinessValue(feature.priority)
+    const riskReductionOpportunity = workType === 'Defect-Risk' ? 13 : (workType === 'Enabler' ? 8 : 5)
+    const wsjfScore = Number(((businessValue + urgencyScore + riskReductionOpportunity) / jobSize).toFixed(2))
+
+    return {
+      ...feature,
+      workType,
+      wsjf: {
+        businessValue,
+        timeCriticality: urgencyScore,
+        riskReductionOpportunity,
+        jobSize,
+        score: wsjfScore
+      },
+      wsjfScore
+    }
+  })
+
+  const featureWorkTypeMap = new Map(enrichedFeatures.map((feature) => [String(feature.title || '').trim(), feature.workType]))
+  const perFeatureChains = new Map()
+  const enrichedStories = userStories.map((story) => {
+    const featureKey = String(story.feature || '').trim()
+    const workType = featureWorkTypeMap.get(featureKey) || inferWorkTypeFromText(story.title)
+    const next = {
+      ...story,
+      workType,
+      dependencies: Array.isArray(story.dependencies) ? story.dependencies : []
+    }
+
+    if (!perFeatureChains.has(featureKey)) perFeatureChains.set(featureKey, [])
+    perFeatureChains.get(featureKey).push(next)
+    return next
+  })
+
+  for (const list of perFeatureChains.values()) {
+    for (let i = 1; i < list.length; i++) {
+      if ((list[i].dependencies || []).length > 0) continue
+      list[i].dependencies = [
+        {
+          type: 'Blocks',
+          story: list[i - 1].title,
+          crossTeam: i % 3 === 0,
+          ageDays: 2 + (i * 2)
+        }
+      ]
+    }
+  }
+
+  return {
+    features: enrichedFeatures,
+    userStories: enrichedStories
+  }
+}
+
 // AI Agent that analyzes requirements and generates backlog items
 function generateBacklogFromRequirements(br) {
   const requirementDetails = safeParseRequirementDetails(br.requirement_details)
@@ -241,10 +334,12 @@ function generateBacklogFromRequirements(br) {
     })
   }
   
+  const safeSignals = applySafeSignals(features, userStories, br.urgency)
+
   return {
     epics,
-    features,
-    userStories,
+    features: safeSignals.features,
+    userStories: safeSignals.userStories,
     metadata: {
       brId: br.id,
       generatedAt: new Date().toISOString(),

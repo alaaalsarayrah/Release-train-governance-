@@ -215,20 +215,22 @@ export default function ProjectDocumentationPage() {
 
       <header className="hero">
         <div>
-          <p className="kicker">Project Handbook</p>
-          <h1>Agentic SDLC Project Documentation</h1>
+          <p className="kicker">Thesis Handbook</p>
+          <h1>AI-Assisted SAFe Sprint Planning Prototype Documentation</h1>
           <p className="lead">
-            This page documents the complete platform: purpose, architecture, personas, workflow stages,
-            governance model, evaluation pipeline, and operational runbooks so any user can understand how
-            the project works end-to-end.
+            This handbook documents the thesis prototype with sprint planning as the primary scope and
+            upstream demand/BRD orchestration as supporting modules.
           </p>
         </div>
         <div className="heroLinks">
-          <Link href="/">Home</Link>
-          <Link href="/dashboard">Dashboard</Link>
-          <Link href="/agentic-workflow">Workflow Console</Link>
-          <Link href="/administrator">Administrator</Link>
+          <Link href="/thesis-demo">Thesis Demo</Link>
+          <Link href="/conceptual-framework">Conceptual Framework</Link>
+          <Link href="/sprint-planning-workspace">Sprint Planning Workspace</Link>
           <Link href="/evaluation">Evaluation</Link>
+          <Link href="/agentic-workflow">Supporting Workflow</Link>
+          <Link href="/dashboard">Supporting Dashboard</Link>
+          <Link href="/administrator">Administrator</Link>
+          <Link href="/">Home</Link>
         </div>
       </header>
 
@@ -251,11 +253,12 @@ export default function ProjectDocumentationPage() {
           <article>
             <h3>In-Scope Capabilities</h3>
             {renderList([
-              'Business request lifecycle orchestration',
-              'Demand and BRD generation/review workflow',
-              'Persona configuration and model assignment',
-              'ADO synchronization and audit log exports',
-              'Thesis/BRD parsing and RO3 evaluation capture'
+              'SAFe sprint planning support with specialist AI agents',
+              'Backlog refinement and estimation support',
+              'Capacity awareness and dependency/risk visibility',
+              'Architecture guidance with explicit human review decisions',
+              'Evaluation evidence capture and export for thesis reporting',
+              'Supporting upstream modules: demand intake and BRD governance'
             ])}
           </article>
         </div>

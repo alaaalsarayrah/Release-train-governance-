@@ -1,0 +1,108 @@
+{
+  "teams": [
+    {
+      "id": "team-digital-dubai",
+      "name": "Dubai Digital Services Team",
+      "region": "Dubai",
+      "members": [
+        {
+          "name": "Maha Al Nuaimi",
+          "role": "Product Owner",
+          "type": "Human",
+          "email": "maha.alnuaimi@smartgov.ae"
+        },
+        {
+          "name": "Saeed Al Mansoori",
+          "role": "Scrum Master",
+          "type": "Human",
+          "email": "saeed.almansoori@smartgov.ae"
+        },
+        {
+          "name": "Nour El Din",
+          "role": "Developer",
+          "type": "Human",
+          "email": "nour.eldin@smartgov.ae"
+        },
+        {
+          "name": "Rania Sabet",
+          "role": "Business Analyst",
+          "type": "Human",
+          "email": "rania.sabet@smartgov.ae"
+        },
+        {
+          "name": "Huda Karim",
+          "role": "Tester",
+          "type": "Human",
+          "email": "huda.karim@smartgov.ae"
+        },
+        {
+          "name": "AI Planning Specialist - Dubai",
+          "role": "Developer",
+          "type": "AI Agent"
+        },
+        {
+          "name": "AI Quality Specialist - Dubai",
+          "role": "Tester",
+          "type": "AI Agent"
+        }
+      ]
+    },
+    {
+      "id": "team-integration-abu-dhabi",
+      "name": "Abu Dhabi Integration Team",
+      "region": "Abu Dhabi",
+      "members": [
+        {
+          "name": "Yasir Al Mazrouei",
+          "role": "Delivery Lead",
+          "type": "Human",
+          "email": "yasir.almazrouei@smartgov.ae"
+        },
+        {
+          "name": "Layla Nasser",
+          "role": "Developer",
+          "type": "Human",
+          "email": "layla.nasser@smartgov.ae"
+        },
+        {
+          "name": "Amina Farhat",
+          "role": "Business Analyst",
+          "type": "Human",
+          "email": "amina.farhat@smartgov.ae"
+        },
+        {
+          "name": "Firas Haddad",
+          "role": "Tester",
+          "type": "Human",
+          "email": "firas.haddad@smartgov.ae"
+        },
+        {
+          "name": "AI Integration Specialist - AUH",
+          "role": "Developer",
+          "type": "AI Agent"
+        },
+        {
+          "name": "AI Risk Specialist - AUH",
+          "role": "Business Analyst",
+          "type": "AI Agent"
+        }
+      ]
+    }
+  ],
+  "sprints": [
+    {
+      "id": "sprint-5-2026",
+      "name": "Sprint 5 - Digital Services Wave 2",
+      "startDate": "2026-03-09",
+      "endDate": "2026-03-22",
+      "status": "Active"
+    },
+    {
+      "id": "sprint-6-2026",
+      "name": "Sprint 6 - Integration Hardening",
+      "startDate": "2026-03-23",
+      "endDate": "2026-04-05",
+      "status": "Planned"
+    }
+  ]
+}

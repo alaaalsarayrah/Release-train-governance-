@@ -69,7 +69,7 @@ export default function TeamsPage() {
       const res = await fetch('/api/ado-provision', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userEmails: emails })
+        body: JSON.stringify({ userEmails: emails, inviteSiteHumans: true })
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.message || 'Provision failed')
@@ -138,6 +138,62 @@ export default function TeamsPage() {
       if (!res.ok) throw new Error(formatTeamSetupWriteError(json))
       setData({ teams: json.setup?.teams || [], sprints: json.setup?.sprints || [] })
       alert(successMessage)
+  }
+
+  function getSuggestedEmailUpdatesFromReadiness() {
+    const updates = (assignmentReadiness?.suggestedEmailUpdates || [])
+      .map((row) => ({
+        teamName: String(row?.team || '').trim(),
+        memberName: String(row?.member || '').trim(),
+        email: String(row?.suggestedEmail || '').trim()
+      }))
+      .filter((row) => row.teamName && row.memberName && row.email)
+
+    const dedupe = new Map()
+    for (const row of updates) {
+      dedupe.set(`${row.teamName}::${row.memberName}`, row)
+    }
+
+    return Array.from(dedupe.values())
+  }
+
+  function fillSuggestedMemberEmails() {
+    const updates = getSuggestedEmailUpdatesFromReadiness()
+    if (!updates.length) {
+      alert('No suggested member email updates available. Run assignment readiness first.')
+      return
+    }
+
+    const lines = updates.map((x) => `${x.teamName}, ${x.memberName}, ${x.email}`)
+    setMemberEmailInput(lines.join('\n'))
+    alert(`Prepared ${updates.length} suggested mappings from ADO assignment readiness`) 
+  }
+
+  async function applySuggestedMemberEmails() {
+    const updates = getSuggestedEmailUpdatesFromReadiness()
+    if (!updates.length) {
+      alert('No suggested member email updates available. Run assignment readiness first.')
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Apply ${updates.length} suggested member email updates from assignment readiness?`
+    )
+    if (!confirmed) return
+
+    setSavingEmails(true)
+    try {
+      await persistMemberEmailUpdates(
+        updates,
+        `Applied ${updates.length} suggested member email updates`
+      )
+      await checkAssignmentReadiness()
+    } catch (err) {
+      console.error(err)
+      alert('Apply suggested mapping failed: ' + err.message)
+    } finally {
+      setSavingEmails(false)
+    }
   }
 
   function getFallbackEmailUpdatesFromReadiness() {
@@ -341,7 +397,7 @@ export default function TeamsPage() {
             {initializing ? 'Initializing...' : 'Initialize Dubai / RAK / AUH'}
           </button>
           <button onClick={provisionInAdo} disabled={provisioning}>
-            {provisioning ? 'Provisioning ADO...' : 'Provision in Azure DevOps'}
+            {provisioning ? 'Provisioning ADO...' : 'Provision Teams + Site Users in ADO'}
           </button>
           <button onClick={checkAssignmentReadiness} disabled={checkingAssignability}>
             {checkingAssignability ? 'Checking Assignability...' : 'Check Assignment Readiness'}
@@ -355,7 +411,7 @@ export default function TeamsPage() {
       <section className="panel">
         <h2>Optional: Invite Human Users to ADO</h2>
         <p className="muted">
-          Enter comma-separated emails for developers, testers, and business users to invite into Azure DevOps.
+          Site human users are already invited by Provision Teams + Site Users in ADO. Add extra comma-separated emails only if needed.
         </p>
         <textarea
           value={userEmails}
@@ -386,6 +442,12 @@ export default function TeamsPage() {
           <button onClick={saveMemberEmails} disabled={savingEmails}>
             {savingEmails ? 'Saving...' : 'Save Member Emails'}
           </button>
+          <button onClick={fillSuggestedMemberEmails}>
+            Fill Suggested Mappings
+          </button>
+          <button onClick={applySuggestedMemberEmails} disabled={savingEmails}>
+            {savingEmails ? 'Applying Suggested...' : 'Apply Suggested Mapping'}
+          </button>
           <button onClick={fillFallbackMemberEmails}>
             Fill Unresolved with Fallback
           </button>
@@ -394,7 +456,7 @@ export default function TeamsPage() {
           </button>
         </div>
         <p className="muted" style={{ marginTop: 8 }}>
-          Fallback mapping is temporary and maps unresolved humans to the first entitled ADO principal from readiness.
+          Suggested mapping uses readiness name-to-principal matches. Fallback mapping is temporary and maps unresolved humans to the first entitled ADO principal.
         </p>
       </section>
 
@@ -504,12 +566,28 @@ export default function TeamsPage() {
           <p><strong>Sprints Existing:</strong> {(provisionReport.sprintsExisting || []).join(', ') || '-'}</p>
           <p><strong>Sprint Assignments:</strong> {(provisionReport.sprintAssignments || []).length}</p>
           <p><strong>Users Invited:</strong> {(provisionReport.usersInvited || []).join(', ') || '-'}</p>
+          <p><strong>Site Users Discovered:</strong> {(provisionReport.usersDiscoveredFromTeams || []).length}</p>
+          <p><strong>Missing Member Email:</strong> {(provisionReport.skippedNoEmail || []).length}</p>
+          <p><strong>Invalid Member Email:</strong> {(provisionReport.skippedInvalidEmail || []).length}</p>
+          <p><strong>Placeholder Member Email:</strong> {(provisionReport.skippedPlaceholderEmail || []).length}</p>
+          <p><strong>Duplicate Member Email:</strong> {(provisionReport.duplicateEmails || []).length}</p>
 
           {provisionReport.userInviteErrors?.length ? (
             <div>
               <strong>User Invite Errors:</strong>
               <ul>
                 {provisionReport.userInviteErrors.map((e, i) => <li key={i}>{e}</li>)}
+              </ul>
+            </div>
+          ) : null}
+
+          {provisionReport.duplicateEmails?.length ? (
+            <div>
+              <strong>Duplicate Team Member Emails</strong>
+              <ul>
+                {provisionReport.duplicateEmails.map((row, i) => (
+                  <li key={`dup-${i}`}>{row.team} / {row.member} / {row.email}</li>
+                ))}
               </ul>
             </div>
           ) : null}

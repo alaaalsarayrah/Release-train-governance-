@@ -10,8 +10,20 @@ export const config = {
 }
 
 const uploadDir = path.join(process.cwd(), 'public', 'uploads')
+const thesisMetaPath = path.join(process.cwd(), 'data', 'thesis-upload.json')
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true })
+}
+
+function normalizeFieldValue(value) {
+  if (Array.isArray(value)) return value[0]
+  return value
+}
+
+function writeThesisUploadMeta(meta) {
+  const dir = path.dirname(thesisMetaPath)
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(thesisMetaPath, JSON.stringify(meta, null, 2), 'utf-8')
 }
 
 function parseForm(req) {
@@ -37,7 +49,7 @@ export default async function handler(req, res) {
   })
 
   try {
-    const { files } = await parseForm(req)
+    const { files, fields } = await parseForm(req)
 
     // formidable may provide different shapes; attempt to find the uploaded file
     let file = files?.file || (files && Object.values(files)[0])
@@ -55,9 +67,18 @@ export default async function handler(req, res) {
     // Basic validation: allow pdf and docx by extension OR by detected mimetype
     const ext = path.extname(originalName).toLowerCase()
     const mimetype = file.mimetype || file.type || file.mime || ''
+    const uploadPurpose = String(normalizeFieldValue(fields?.purpose) || '').trim().toLowerCase()
 
     const extAllowed = ['.pdf', '.docx', '.doc'].includes(ext)
     const mimeAllowed = /pdf|word|officedocument|msword/.test(mimetype)
+
+    if (uploadPurpose === 'thesis') {
+      const thesisTypeAllowed = ['.pdf', '.docx'].includes(ext) || /pdf|officedocument/.test(mimetype)
+      if (!thesisTypeAllowed) {
+        try { fs.unlinkSync(tmpPath) } catch (e) {}
+        return res.status(400).json({ error: 'Thesis uploads support PDF and DOCX only.' })
+      }
+    }
 
     if (!extAllowed && !mimeAllowed) {
       // cleanup uploaded temp file
@@ -84,6 +105,17 @@ export default async function handler(req, res) {
 
     const storedName = path.basename(destPath)
     const publicUrl = '/uploads/' + encodeURIComponent(storedName)
+
+    if (uploadPurpose === 'thesis') {
+      writeThesisUploadMeta({
+        fileName: storedName,
+        originalName,
+        url: publicUrl,
+        uploadedAt: new Date().toISOString(),
+        mimetype: String(mimetype || '')
+      })
+    }
+
     console.log('Upload saved:', destPath)
     res.status(200).json({ url: publicUrl })
   } catch (err) {

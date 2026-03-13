@@ -16,6 +16,39 @@ function stageStatusMeta(status) {
   return { label: 'Not Started', tone: 'muted' }
 }
 
+function parseMaybeJson(value) {
+  if (!value) return null
+  if (typeof value === 'object') return value
+  try {
+    return JSON.parse(value)
+  } catch {
+    return null
+  }
+}
+
+function getDependencyMetrics(row) {
+  const direct = parseMaybeJson(row.safe_dependency_metrics)
+  const fromSummary = parseMaybeJson(row.ado_sync_summary)?.dependencyMetrics
+  const metrics = direct || fromSummary || {}
+  return {
+    blockedStories: Number(metrics.blockedStories || 0),
+    crossTeamLinks: Number(metrics.crossTeamLinks || 0),
+    agingBlockers: Number(metrics.agingBlockers || 0),
+    heatScore: Number(metrics.heatScore || 0)
+  }
+}
+
+function getWsjfSummary(row) {
+  const direct = parseMaybeJson(row.safe_wsjf_summary)
+  const fromSummary = parseMaybeJson(row.ado_sync_summary)?.wsjfSummary
+  const summary = direct || fromSummary || {}
+  const rankings = Array.isArray(summary.rankings) ? summary.rankings : []
+  return {
+    totalFeatures: Number(summary.totalFeatures || rankings.length || 0),
+    topFeature: rankings[0] || null
+  }
+}
+
 export default function Dashboard() {
   const [requests, setRequests] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -119,13 +152,30 @@ export default function Dashboard() {
 
   const summary = useMemo(() => {
     const rows = requests || []
+    const dependency = rows.reduce(
+      (acc, row) => {
+        const dep = getDependencyMetrics(row)
+        acc.blockedStories += dep.blockedStories
+        acc.crossTeamLinks += dep.crossTeamLinks
+        acc.agingBlockers += dep.agingBlockers
+        acc.heatScore += dep.heatScore
+        return acc
+      },
+      { blockedStories: 0, crossTeamLinks: 0, agingBlockers: 0, heatScore: 0 }
+    )
+
     return {
       total: rows.length,
       pending: rows.filter((r) => String(r.status || 'Pending') === 'Pending').length,
       approved: rows.filter((r) => String(r.status || '') === 'Approved').length,
       rejected: rows.filter((r) => String(r.status || '') === 'Rejected').length,
       stage1Running: rows.filter((r) => String(r.stage1_status || '') === 'Running').length,
-      stage1Done: rows.filter((r) => String(r.stage1_status || '') === 'Completed').length
+      stage1Done: rows.filter((r) => String(r.stage1_status || '') === 'Completed').length,
+      flowLoadPoints: rows.reduce((sum, r) => sum + (Number(r.story_points_total || 0) || 0), 0),
+      blockedStories: dependency.blockedStories,
+      crossTeamLinks: dependency.crossTeamLinks,
+      agingBlockers: dependency.agingBlockers,
+      avgHeatScore: rows.length > 0 ? Number((dependency.heatScore / rows.length).toFixed(2)) : 0
     }
   }, [requests])
 
@@ -247,18 +297,20 @@ export default function Dashboard() {
 
       <header className="hero">
         <div>
-          <h1>Business Request Operations</h1>
+          <h1>Supporting Demand Intake Dashboard</h1>
           <p>
-            Approve incoming requests, run Stage 1 orchestration, and monitor execution in real time.
+            Secondary module for business request approval and upstream demand/BRD readiness before sprint planning.
           </p>
         </div>
         <div className="heroLinks">
-          <Link href="/">Home</Link>
-          <Link href="/agentic-workflow">Workflow Console</Link>
+          <Link href="/thesis-demo">Thesis Demo</Link>
           <Link href="/sprint-planning-workspace">Sprint Planning Workspace</Link>
-          <Link href="/agentic-config">Personas & Audit</Link>
+          <Link href="/agentic-workflow">Supporting Workflow</Link>
+          <Link href="/planning-export-center">Export Center</Link>
           <Link href="/evaluation">Evaluation</Link>
+          <Link href="/agentic-config">Personas & Audit</Link>
           <Link href="/teams">Teams</Link>
+          <Link href="/">Home</Link>
         </div>
       </header>
 
@@ -291,6 +343,26 @@ export default function Dashboard() {
             <article>
               <h3>Stage 1 Complete</h3>
               <p>{summary.stage1Done}</p>
+            </article>
+            <article>
+              <h3>Flow Load (Pts)</h3>
+              <p>{summary.flowLoadPoints}</p>
+            </article>
+            <article>
+              <h3>Blocked Stories</h3>
+              <p>{summary.blockedStories}</p>
+            </article>
+            <article>
+              <h3>Cross-Team Links</h3>
+              <p>{summary.crossTeamLinks}</p>
+            </article>
+            <article>
+              <h3>Aging Blockers</h3>
+              <p>{summary.agingBlockers}</p>
+            </article>
+            <article>
+              <h3>Avg Heat Score</h3>
+              <p>{summary.avgHeatScore}</p>
             </article>
           </section>
 
@@ -336,8 +408,19 @@ export default function Dashboard() {
                     <th>Requirements</th>
                     <th>Team</th>
                     <th>Sprint</th>
+                    <th>PI</th>
+                    <th>ART</th>
                     <th>Epic</th>
+                    <th>Feature</th>
                     <th>User Story</th>
+                    <th>Task</th>
+                    <th>Sprint Status</th>
+                    <th>Story Points</th>
+                    <th>Top WSJF Feature</th>
+                    <th>Blocked</th>
+                    <th>Cross-Team</th>
+                    <th>Aging</th>
+                    <th>Heat</th>
                     <th>Decision</th>
                     <th>Stage 1</th>
                     <th>Stage 1 ADO</th>
@@ -349,6 +432,9 @@ export default function Dashboard() {
                   {displayedRequests.map((r) => {
                     const status = requestStatusMeta(r.status)
                     const stage1 = stageStatusMeta(r.stage1_status)
+                    const dependency = getDependencyMetrics(r)
+                    const wsjf = getWsjfSummary(r)
+                    const wsjfTop = wsjf.topFeature
                     const requirementPending =
                       (r.status === 'Approved' || r.status === 'approved') && !r.requirement_created
 
@@ -376,13 +462,34 @@ export default function Dashboard() {
                         </td>
                         <td>{r.team_name || '-'}</td>
                         <td>{r.sprint_name || '-'}</td>
+                        <td>{r.safe_pi_name || '-'}</td>
+                        <td>{r.safe_art_name || '-'}</td>
                         <td>{r.epic_status || 'Not Created'}</td>
+                        <td>{r.feature_status || 'Not Created'}</td>
                         <td>{r.user_story_status || 'Not Created'}</td>
+                        <td>{r.task_status || 'Not Created'}</td>
+                        <td>{r.sprint_status || '-'}</td>
+                        <td>{r.story_points_total || 0}</td>
+                        <td>{wsjfTop ? `${wsjfTop.featureTitle} (${wsjfTop.wsjfScore})` : '-'}</td>
+                        <td>{dependency.blockedStories}</td>
+                        <td>{dependency.crossTeamLinks}</td>
+                        <td>{dependency.agingBlockers}</td>
+                        <td>{dependency.heatScore}</td>
                         <td className="decisionCell">{r.decision_reason || '-'}</td>
                         <td>
                           <span className={`pill ${stage1.tone}`}>{stage1.label}</span>
                         </td>
-                        <td>{r.stage1_ado_work_item_id || '-'}</td>
+                        <td>
+                          <div className="adoCell">
+                            <span>{r.stage1_ado_work_item_id || '-'}</span>
+                            {r.ado_board_url ? (
+                              <a href={r.ado_board_url} target="_blank" rel="noreferrer">Board</a>
+                            ) : null}
+                            {r.ado_dashboard_url ? (
+                              <a href={r.ado_dashboard_url} target="_blank" rel="noreferrer">Dashboard</a>
+                            ) : null}
+                          </div>
+                        </td>
                         <td>{r.created_at ? new Date(r.created_at).toLocaleString() : '-'}</td>
                         <td>
                           <div className="actionCol">
@@ -634,7 +741,7 @@ export default function Dashboard() {
 
         .summaryGrid {
           display: grid;
-          grid-template-columns: repeat(6, minmax(0, 1fr));
+          grid-template-columns: repeat(11, minmax(0, 1fr));
           gap: 9px;
           margin-bottom: 12px;
         }
@@ -743,7 +850,7 @@ export default function Dashboard() {
 
         .gridTable {
           width: 100%;
-          min-width: 1300px;
+          min-width: 2200px;
           border-collapse: collapse;
           font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif;
           font-size: 13px;
@@ -812,6 +919,23 @@ export default function Dashboard() {
           max-width: 260px;
           white-space: normal;
           color: #3d536d;
+        }
+
+        .adoCell {
+          display: grid;
+          gap: 4px;
+        }
+
+        .adoCell a {
+          width: fit-content;
+          text-decoration: none;
+          color: #0b4c8f;
+          font-weight: 700;
+          border: 1px solid #c7dbf2;
+          border-radius: 999px;
+          background: #f8fbff;
+          padding: 2px 8px;
+          font-size: 11px;
         }
 
         .actionCol {
@@ -940,7 +1064,7 @@ export default function Dashboard() {
 
         @media (max-width: 1180px) {
           .summaryGrid {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
+            grid-template-columns: repeat(2, minmax(0, 1fr));
           }
         }
 

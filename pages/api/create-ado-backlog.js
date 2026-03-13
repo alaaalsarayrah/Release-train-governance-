@@ -50,13 +50,21 @@ async function adoRequest({ org, pat, apiPath, method = 'GET', body, contentType
   return json
 }
 
-function flattenIterations(node, out = new Map()) {
+function flattenClassificationNodes(node, out = new Map()) {
   if (!node) return out
   if (node.path) out.set(node.path.toLowerCase(), node.path)
   for (const child of node.children || []) {
-    flattenIterations(child, out)
+    flattenClassificationNodes(child, out)
   }
   return out
+}
+
+function flattenIterations(node, out = new Map()) {
+  return flattenClassificationNodes(node, out)
+}
+
+function flattenAreas(node, out = new Map()) {
+  return flattenClassificationNodes(node, out)
 }
 
 function normalizeIterationPathForWorkItem(rawPath, project) {
@@ -95,6 +103,37 @@ async function resolveIterationPath({ org, project, pat, teamName, sprintName })
   }
 
   return null
+}
+
+function normalizeAreaPathForWorkItem(rawPath, project) {
+  if (!rawPath) return project
+  return String(rawPath).replace(/^\\/, '')
+}
+
+async function resolveAreaPath({ org, project, pat, artName, teamName }) {
+  const root = await adoRequest({
+    org,
+    pat,
+    apiPath: `/${encodeURIComponent(project)}/_apis/wit/classificationnodes/Areas?$depth=7&api-version=7.1`
+  })
+  const all = flattenAreas(root)
+
+  const cleanArt = String(artName || '').trim()
+  const cleanTeam = String(teamName || '').trim()
+
+  const candidates = [
+    cleanArt && cleanTeam ? `\\${project}\\${cleanArt}\\${cleanTeam}` : null,
+    cleanArt ? `\\${project}\\${cleanArt}` : null,
+    cleanTeam ? `\\${project}\\${cleanTeam}` : null,
+    `\\${project}`
+  ].filter(Boolean)
+
+  for (const candidate of candidates) {
+    const found = all.get(candidate.toLowerCase())
+    if (found) return normalizeAreaPathForWorkItem(found, project)
+  }
+
+  return project
 }
 
 async function getSupportedWorkItemTypes(witApi, project) {
@@ -158,10 +197,27 @@ function buildPatch({
   }
 
   if (priority) {
-    patch.push({ op: 'add', path: '/fields/Microsoft.VSTS.Common.Priority', value: Number(priority) || 2 })
+    const normalizedPriority = (() => {
+      if (Number.isFinite(Number(priority))) return Number(priority)
+      const text = String(priority).toLowerCase()
+      if (text.includes('high') || text === 'h') return 1
+      if (text.includes('low') || text === 'l') return 3
+      return 2
+    })()
+    patch.push({ op: 'add', path: '/fields/Microsoft.VSTS.Common.Priority', value: normalizedPriority })
   }
 
   return patch
+}
+
+function extractAssignedTo(workItem) {
+  const value = workItem?.fields?.['System.AssignedTo']
+  if (!value) return null
+  if (typeof value === 'string') return value
+  if (typeof value === 'object') {
+    return value.displayName || value.uniqueName || value.descriptor || null
+  }
+  return null
 }
 
 function isInvalidFieldError(error) {
@@ -221,6 +277,45 @@ function setAssignedToPatch(patch, assignee) {
   }
 
   return next
+}
+
+function normalizeIdentityKey(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function uniqueAssignees(values) {
+  const seen = new Set()
+  const ordered = []
+
+  for (const value of values || []) {
+    const clean = String(value || '').trim()
+    if (!clean) continue
+    const key = normalizeIdentityKey(clean)
+    if (seen.has(key)) continue
+    seen.add(key)
+    ordered.push(clean)
+  }
+
+  return ordered
+}
+
+function createRoundRobinAllocator(candidates) {
+  const pool = uniqueAssignees(candidates)
+  let index = 0
+
+  return {
+    pool,
+    primary: pool[0] || null,
+    next() {
+      if (!pool.length) return null
+      const assignee = pool[index % pool.length]
+      index += 1
+      return assignee
+    },
+    orderedCandidates(primaryAssignee) {
+      return uniqueAssignees([primaryAssignee, ...pool])
+    }
+  }
 }
 
 async function createWithFallbackFields({ witApi, project, workItemType, patch, assigneeCandidates = [] }) {
@@ -309,7 +404,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { backlog, teamName, sprintName, brId } = req.body || {}
+    const { backlog, teamName, sprintName, brId, piName, artName } = req.body || {}
     const config = loadConfig()
 
     if (!config.organization || !config.project || !config.pat) {
@@ -335,14 +430,67 @@ export default async function handler(req, res) {
       teamName,
       sprintName
     })
-    const assigneeCandidates = await resolveAssigneeCandidatesForAdo({ config, teamName })
-    const assignedTo = assigneeCandidates[0] || null
+    const areaPath = await resolveAreaPath({
+      org: config.organization,
+      project: config.project,
+      pat: config.pat,
+      artName,
+      teamName
+    })
+    const assigneeCandidates = await resolveAssigneeCandidatesForAdo({
+      config,
+      teamName,
+      includeFallbackTeams: false
+    })
+    const assigneeAllocator = createRoundRobinAllocator(assigneeCandidates)
+    const assignedTo = assigneeAllocator.primary
+    const assignmentCoverage = {
+      primaryAssignee: assignedTo || null,
+      assigneePool: assigneeAllocator.pool,
+      storiesTotal: 0,
+      storiesAssigned: 0,
+      tasksTotal: 0,
+      tasksAssigned: 0,
+      byAssignee: {}
+    }
+
+    const trackAssignment = (workType, assignee) => {
+      const clean = String(assignee || '').trim()
+      if (!clean) return
+
+      if (!assignmentCoverage.byAssignee[clean]) {
+        assignmentCoverage.byAssignee[clean] = {
+          epics: 0,
+          features: 0,
+          stories: 0,
+          tasks: 0,
+          total: 0
+        }
+      }
+
+      if (assignmentCoverage.byAssignee[clean][workType] !== undefined) {
+        assignmentCoverage.byAssignee[clean][workType] += 1
+      }
+      assignmentCoverage.byAssignee[clean].total += 1
+    }
+
+    const storyPointsTotal = (backlog.userStories || []).reduce((acc, story) => {
+      return acc + (Number(story?.points || 0) || 0)
+    }, 0)
+
+    const weightedStoryPointsTotal = Number((backlog.userStories || []).reduce((acc, story) => {
+      const points = Number(story?.points || 0) || 0
+      const weight = Number(story?.weight || 1) || 1
+      return acc + (points * weight)
+    }, 0).toFixed(2))
 
     const globalTags = [
       'Agentic',
       'Backlog',
       teamName ? `Team:${teamName}` : null,
       sprintName ? `Sprint:${sprintName}` : null,
+      piName ? `PI:${String(piName).replace(/;/g, '-')}` : null,
+      artName ? `ART:${String(artName).replace(/;/g, '-')}` : null,
       brId ? `BR:${brId}` : null
     ]
       .filter(Boolean)
@@ -357,6 +505,12 @@ export default async function handler(req, res) {
       errors: []
     }
 
+    if (assigneeAllocator.pool.length <= 1) {
+      results.warnings.push(
+        'Assignee pool resolved to one identity. Add unique ADO-recognized identities per team member to enable balanced distribution.'
+      )
+    }
+
     // Step 1: Create Epics
     const epicIdMap = {}
     for (const epic of backlog.epics || []) {
@@ -367,7 +521,7 @@ export default async function handler(req, res) {
           businessValue: epic.businessValue,
           effort: epic.effort,
           tags: globalTags,
-          areaPath: config.project,
+          areaPath,
           iterationPath,
           assignedTo
         })
@@ -384,10 +538,12 @@ export default async function handler(req, res) {
         results.epics.push({
           title: epic.title,
           id: epicWI.id,
+          assignedTo: extractAssignedTo(epicWI),
           workItemType: typeMapping.epicType,
           url: `https://dev.azure.com/${config.organization}/${config.project}/_workitems/edit/${epicWI.id}`,
           status: 'Created'
         })
+        trackAssignment('epics', extractAssignedTo(epicWI))
       } catch (err) {
         results.errors.push({ type: 'Epic', title: epic.title, error: String(err) })
       }
@@ -397,14 +553,24 @@ export default async function handler(req, res) {
     const featureIdMap = {}
     for (const feature of backlog.features || []) {
       try {
+        const featureWsjfScore = Number(feature?.wsjf?.score || feature?.wsjfScore || 0)
+        const featureAssignee = assigneeAllocator.next() || assignedTo
+        const featureTags = [
+          globalTags,
+          featureWsjfScore > 0 ? `WSJF:${featureWsjfScore.toFixed(2)}` : null,
+          feature?.workType ? `WorkType:${String(feature.workType).replace(/;/g, '-')}` : null
+        ].filter(Boolean).join(';')
+
         const featureDoc = buildPatch({
           title: feature.title,
           description: `${feature.description || ''}`.trim(),
           priority: feature.priority,
-          tags: globalTags,
-          areaPath: config.project,
+          businessValue: feature?.wsjf?.businessValue,
+          effort: feature?.wsjf?.jobSize,
+          tags: featureTags,
+          areaPath,
           iterationPath,
-          assignedTo
+          assignedTo: featureAssignee
         })
 
         const featureWI = await createWithFallbackFields({
@@ -412,7 +578,7 @@ export default async function handler(req, res) {
           project: config.project,
           workItemType: typeMapping.featureType,
           patch: featureDoc,
-          assigneeCandidates
+          assigneeCandidates: assigneeAllocator.orderedCandidates(featureAssignee)
         })
         
         featureIdMap[feature.title] = featureWI.id
@@ -437,10 +603,14 @@ export default async function handler(req, res) {
           title: feature.title,
           id: featureWI.id,
           parentEpic: feature.epic,
+          wsjfScore: featureWsjfScore > 0 ? featureWsjfScore : null,
+          workType: feature?.workType || null,
+          assignedTo: extractAssignedTo(featureWI),
           workItemType: typeMapping.featureType,
           url: `https://dev.azure.com/${config.organization}/${config.project}/_workitems/edit/${featureWI.id}`,
           status: 'Created'
         })
+        trackAssignment('features', extractAssignedTo(featureWI))
       } catch (err) {
         results.errors.push({ type: 'Feature', title: feature.title, error: String(err) })
       }
@@ -449,16 +619,21 @@ export default async function handler(req, res) {
     // Step 3: Create User Stories/PBIs (linked to Features)
     for (const story of backlog.userStories || []) {
       try {
+        const storyAssignee = assigneeAllocator.next() || assignedTo
+        const storyAssigneeCandidates = assigneeAllocator.orderedCandidates(storyAssignee)
         const acceptanceText = (story.acceptanceCriteria || []).map((ac, i) => `${i + 1}. ${ac}`).join('\n')
         const storyDoc = buildPatch({
           title: story.title,
           description: `${story.userStory || ''}`.trim(),
           points: story.points,
           acceptanceCriteria: acceptanceText || null,
-          tags: globalTags,
-          areaPath: config.project,
+          tags: [
+            globalTags,
+            story?.workType ? `WorkType:${String(story.workType).replace(/;/g, '-')}` : null
+          ].filter(Boolean).join(';'),
+          areaPath,
           iterationPath,
-          assignedTo
+          assignedTo: storyAssignee
         })
 
         const storyWI = await createWithFallbackFields({
@@ -466,8 +641,12 @@ export default async function handler(req, res) {
           project: config.project,
           workItemType: typeMapping.storyType,
           patch: storyDoc,
-          assigneeCandidates
+          assigneeCandidates: storyAssigneeCandidates
         })
+        const storyAssignedTo = extractAssignedTo(storyWI)
+        assignmentCoverage.storiesTotal += 1
+        if (storyAssignedTo) assignmentCoverage.storiesAssigned += 1
+        trackAssignment('stories', storyAssignedTo)
 
         // Link to parent Feature if specified
         if (story.feature && featureIdMap[story.feature]) {
@@ -490,21 +669,27 @@ export default async function handler(req, res) {
           const criterion = story.acceptanceCriteria[i]
           if (!criterion) continue
           try {
+            const taskAssignee = assigneeAllocator.next() || storyAssignedTo || storyAssignee
+            const taskAssigneeCandidates = assigneeAllocator.orderedCandidates(taskAssignee)
             const taskDoc = buildPatch({
               title: `${story.title} - Task ${i + 1}`,
               description: criterion,
-              tags: `${globalTags};AC-Task`,
-              areaPath: config.project,
+              tags: `${globalTags};AC-Task${story?.workType ? `;WorkType:${String(story.workType).replace(/;/g, '-')}` : ''}`,
+              areaPath,
               iterationPath,
-              assignedTo
+              assignedTo: taskAssignee
             })
             const taskWI = await createWithFallbackFields({
               witApi,
               project: config.project,
               workItemType: typeMapping.taskType,
               patch: taskDoc,
-              assigneeCandidates
+              assigneeCandidates: taskAssigneeCandidates
             })
+            const taskAssignedTo = extractAssignedTo(taskWI)
+            assignmentCoverage.tasksTotal += 1
+            if (taskAssignedTo) assignmentCoverage.tasksAssigned += 1
+            trackAssignment('tasks', taskAssignedTo)
 
             await linkToParent({
               witApi,
@@ -519,6 +704,7 @@ export default async function handler(req, res) {
               title: `${story.title} - Task ${i + 1}`,
               id: taskWI.id,
               parentStory: story.title,
+              assignedTo: taskAssignedTo,
               workItemType: typeMapping.taskType,
               url: `https://dev.azure.com/${config.organization}/${config.project}/_workitems/edit/${taskWI.id}`,
               status: 'Created'
@@ -536,6 +722,10 @@ export default async function handler(req, res) {
           title: story.title,
           id: storyWI.id,
           parentFeature: story.feature,
+          workType: story?.workType || null,
+          assignedTo: storyAssignedTo,
+          points: Number(story?.points || 0) || 0,
+          weight: Number(story?.weight || 1) || 1,
           workItemType: typeMapping.storyType,
           url: `https://dev.azure.com/${config.organization}/${config.project}/_workitems/edit/${storyWI.id}`,
           status: 'Created'
@@ -548,6 +738,19 @@ export default async function handler(req, res) {
     if (!iterationPath && (teamName || sprintName)) {
       results.warnings.push(
         `Iteration path not found for team='${teamName || '-'}' sprint='${sprintName || '-'}'. Backlog items were created without sprint assignment.`
+      )
+    }
+
+    if (areaPath === config.project && (artName || teamName)) {
+      results.warnings.push(
+        `Area path fallback to project root '${config.project}'. Provide matching ART/team area nodes in ADO for stricter portfolio-to-team traceability.`
+      )
+    }
+
+    const uniqueAssigned = Object.keys(assignmentCoverage.byAssignee || {})
+    if (uniqueAssigned.length <= 1 && assigneeAllocator.pool.length > 1) {
+      results.warnings.push(
+        'Backlog items were ultimately assigned to one ADO identity. Verify that each team member email maps to an entitled ADO user in the organization directory.'
       )
     }
 
@@ -565,10 +768,25 @@ export default async function handler(req, res) {
         processHint: mappingInfo.processHint,
         guardrails: mappingInfo.warnings,
         supportedTypes: Array.from(supportedTypes.values()).sort(),
+        areaPath,
         iterationPath,
+        piName: piName || null,
+        artName: artName || null,
         assignedTo: assignedTo || null,
         assigneeCandidates,
-        burndownReady: Boolean(iterationPath && results.userStories.length > 0 && results.tasks.length > 0)
+        assignmentCoverage: {
+          ...assignmentCoverage,
+          storiesAssignedRatio: assignmentCoverage.storiesTotal
+            ? Number((assignmentCoverage.storiesAssigned / assignmentCoverage.storiesTotal).toFixed(2))
+            : 0,
+          tasksAssignedRatio: assignmentCoverage.tasksTotal
+            ? Number((assignmentCoverage.tasksAssigned / assignmentCoverage.tasksTotal).toFixed(2))
+            : 0
+        },
+        storyPointsTotal,
+        weightedStoryPointsTotal,
+        burndownReady: Boolean(iterationPath && results.userStories.length > 0 && results.tasks.length > 0),
+        assignmentStrategy: 'round-robin'
       },
       results
     })

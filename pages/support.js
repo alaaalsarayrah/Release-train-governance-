@@ -5,8 +5,10 @@ export default function SupportPage() {
     <main className="shell">
       <header className="hero">
         <h1>Support</h1>
-        <p>Get help for Agentic SDLC mobile and web app usage.</p>
+        <p>Get help for the AI-assisted SAFe sprint planning thesis prototype.</p>
         <div className="links">
+          <Link href="/thesis-demo">Thesis Demo</Link>
+          <Link href="/sprint-planning-workspace">Sprint Planning Workspace</Link>
           <Link href="/">Home</Link>
           <Link href="/privacy">Privacy</Link>
           <Link href="/contact">Contact</Link>
@@ -33,9 +35,9 @@ export default function SupportPage() {
       <section className="card">
         <h2>Core Features</h2>
         <ul>
-          <li>BRD upload and requirement extraction.</li>
-          <li>Agentic sprint planning and workflow orchestration.</li>
-          <li>Azure DevOps backlog synchronization.</li>
+          <li>SAFe sprint planning support with AI specialist agents.</li>
+          <li>Human-reviewed decisions for estimation, risks, and dependencies.</li>
+          <li>Supporting modules for demand/BRD preparation and Azure DevOps synchronization.</li>
         </ul>
       </section>
 

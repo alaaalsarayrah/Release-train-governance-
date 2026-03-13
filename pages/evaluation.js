@@ -5,23 +5,39 @@ const initialForm = {
   scenarioId: 'SCN-001',
   scenarioName: 'Backlog refinement with dependency resolution',
   participantId: '',
-  participantRole: 'Scrum Master',
+  participantRole: '',
+  evaluatorId: '',
+  evaluatorRole: 'Scrum Master',
+  evaluatedAt: nowInputValue(),
+  baselineManualPlanningMinutes: '',
+  aiAssistedPlanningMinutes: '',
+  taskCompletionMinutes: '',
+  recommendationsGenerated: '',
+  recommendationsAccepted: '',
+  dependencyIssuesIdentified: '',
+  dependencyIssuesValidated: '',
+  riskItemsIdentified: '',
+  riskRecommendationsAccepted: '',
+  estimationBaseline: '',
+  aiSupportedEstimate: '',
+  clarificationRequests: '',
+  taskCompletionSuccess: '1',
+  systemResponseMs: '',
+  errorCount: '',
   perceivedUsefulness: 4,
   easeOfUse: 4,
   trust: 4,
   intentionToUse: 4,
-  taskCompletionMinutes: '',
-  recommendationsGenerated: '',
-  recommendationsAccepted: '',
-  clarificationRequests: '',
-  systemResponseMs: '',
-  errorCount: '',
+  evaluatorComments: '',
+  observations: '',
+  limitations: '',
   notes: '',
   interviewNotes: ''
 }
 
 function metricValue(value) {
-  return value === null || value === undefined ? '-' : value
+  if (value === null || value === undefined || value === '') return '-'
+  return `${value}${suffix}`
 }
 
 export default function EvaluationPage() {
@@ -30,6 +46,7 @@ export default function EvaluationPage() {
   const [summary, setSummary] = useState(null)
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [demoBusy, setDemoBusy] = useState('')
   const [message, setMessage] = useState('')
 
   const acceptanceRate = useMemo(() => {
@@ -61,6 +78,36 @@ export default function EvaluationPage() {
   }
 
   async function submit(e) {
+
+      async function runDemoAction(action) {
+        if (action === 'reset') {
+          const confirmed = window.confirm('Reset demo data to default baseline?')
+          if (!confirmed) return
+        }
+
+        setDemoBusy(action)
+        setMessage('')
+        try {
+          const res = await fetch('/api/demo-data', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action, profile: 'thesis-demo' })
+          })
+          const json = await res.json()
+          if (!res.ok) throw new Error(json.message || 'Demo data action failed')
+
+          if (action === 'load') {
+            setMessage('Thesis evaluation evidence loaded successfully.')
+          } else {
+            setMessage('Demo data reset to baseline defaults.')
+          }
+          await loadEntries()
+        } catch (err) {
+          setMessage(`Demo data action failed: ${err.message || err}`)
+        } finally {
+          setDemoBusy('')
+        }
+      }
     e.preventDefault()
     setSubmitting(true)
     setMessage('')
@@ -90,18 +137,44 @@ export default function EvaluationPage() {
 
       <header className="hero">
         <div>
-          <h1>RO3 Evaluation Console</h1>
+          <h1>Thesis Evaluation Evidence Console</h1>
           <p>Capture TAM survey ratings, scenario metrics, and interview notes for Chapter 4 evidence.</p>
         </div>
         <div className="heroLinks">
-          <Link href="/">Home</Link>
-          <Link href="/agentic-workflow">Workflow Console</Link>
+          <Link href="/thesis-demo">Thesis Demo</Link>
+          <Link href="/sprint-planning-workspace">Sprint Planning Workspace</Link>
+          <Link href="/planning-export-center">Export Center</Link>
+          <Link href="/agentic-workflow">Supporting Workflow</Link>
           <a href="/api/agentic/chapter4-evidence?format=json" target="_blank" rel="noreferrer">Export JSON</a>
           <a href="/api/agentic/chapter4-evidence?format=csv" target="_blank" rel="noreferrer">Export CSV</a>
+          <Link href="/">Home</Link>
+            <Link href="/conceptual-framework">Conceptual Framework</Link>
         </div>
       </header>
 
       {message ? <div className="banner">{message}</div> : null}
+
+      <section className="panel">
+        <h2>Demo Data Controls</h2>
+        <p className="muted">Load deterministic thesis records to populate this console before demonstrations.</p>
+        <div className="actions">
+          <button type="button" onClick={() => void runDemoAction('load')} disabled={Boolean(demoBusy) || loading}>
+            {demoBusy === 'load' ? 'Loading...' : 'Load Thesis Demo Data'}
+          </button>
+          <button type="button" className="secondary" onClick={() => void runDemoAction('reset')} disabled={Boolean(demoBusy) || loading}>
+            {demoBusy === 'reset' ? 'Resetting...' : 'Reset Demo Data'}
+          </button>
+        </div>
+          e.preventDefault()
+          const errors = validateForm(form)
+          setValidationErrors(errors)
+          if (errors.length) {
+            setMessage('Please correct the validation errors before saving.')
+            return
+          }
+          setSubmitting(true)
+          setMessage('')
+      </section>
 
       <section className="panel">
         <h2>Record Evaluation Entry</h2>
@@ -232,6 +305,11 @@ export default function EvaluationPage() {
                   <td>{metricValue(row.task_completion_minutes)}</td>
                 </tr>
               ))}
+              {!entries.length ? (
+                <tr>
+                  <td colSpan={8}>No evaluation records yet. Use Load Thesis Demo Data to prefill Chapter 4 evidence.</td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>

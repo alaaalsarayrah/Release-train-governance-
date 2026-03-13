@@ -1,56 +1,435 @@
 {
   "items": [
     {
-      "id": "US-401",
-      "title": "As a product owner, I can prioritize backlog in one workspace",
-      "description": "Enable prioritized view with business value and readiness indicators.",
-      "businessValue": 10,
+      "id": "US-601",
+      "title": "Citizen profile prefill for permit journeys",
+      "description": "Auto-populate verified citizen profile attributes at permit initiation to reduce re-entry and form errors.",
+      "type": "User Story",
       "priority": "High",
+      "businessValue": 13,
+      "storyPoints": 8,
+      "effortBand": "Medium",
+      "feature": "Citizen Onboarding",
+      "epic": "Digital Permit Modernization",
+      "targetSprint": "Sprint 5 - Digital Services Wave 2",
+      "team": "Dubai Digital Services Team",
       "acceptanceCriteria": [
-        "Priority score is visible",
-        "Readiness state is visible"
+        "Verified profile fields are prefilled in less than 2 seconds.",
+        "Users can override optional fields with audit logging."
       ]
     },
     {
-      "id": "US-402",
-      "title": "As a scrum master, I can compare sprint capacity versus estimates",
-      "description": "Show total AI estimate, final estimate, and capacity delta.",
+      "id": "US-602",
+      "title": "Document vault API for permit attachments",
+      "description": "Expose secure API endpoints for attachment retrieval and checksum validation across permit services.",
+      "type": "Enabler",
+      "priority": "High",
+      "businessValue": 12,
+      "storyPoints": 13,
+      "effortBand": "Large",
+      "feature": "Document Management",
+      "epic": "Digital Permit Modernization",
+      "targetSprint": "Sprint 5 - Digital Services Wave 2",
+      "team": "Abu Dhabi Integration Team",
+      "acceptanceCriteria": [
+        "Signed URL access expires within configured policy windows.",
+        "Checksum mismatch events are blocked and logged."
+      ]
+    },
+    {
+      "id": "US-603",
+      "title": "Payment gateway status webhook handling",
+      "description": "Process asynchronous settlement and failure callbacks from the payment partner to keep permit state accurate.",
+      "type": "User Story",
+      "priority": "High",
+      "businessValue": 11,
+      "storyPoints": 5,
+      "effortBand": "Small",
+      "feature": "Payments",
+      "epic": "Permit Revenue Services",
+      "targetSprint": "Sprint 5 - Digital Services Wave 2",
+      "team": "Abu Dhabi Integration Team",
+      "acceptanceCriteria": [
+        "Webhook retries are idempotent and do not duplicate transactions.",
+        "Permit status updates are visible in the operator timeline."
+      ]
+    },
+    {
+      "id": "US-604",
+      "title": "License renewal eligibility rules engine",
+      "description": "Apply policy checks for SME license renewal based on compliance and outstanding obligations.",
+      "type": "User Story",
+      "priority": "High",
+      "businessValue": 11,
+      "storyPoints": 8,
+      "effortBand": "Medium",
+      "feature": "Business Rules",
+      "epic": "License Lifecycle",
+      "targetSprint": "Sprint 5 - Digital Services Wave 2",
+      "team": "Dubai Digital Services Team",
+      "acceptanceCriteria": [
+        "Ineligible applications provide transparent reason codes.",
+        "Rule outcomes are versioned for governance audits."
+      ]
+    },
+    {
+      "id": "US-605",
+      "title": "Permit reminder notification orchestration",
+      "description": "Trigger reminder notifications for pending permit steps through email and SMS channels.",
+      "type": "User Story",
+      "priority": "Medium",
       "businessValue": 9,
-      "priority": "High",
+      "storyPoints": 5,
+      "effortBand": "Small",
+      "feature": "Notifications",
+      "epic": "Citizen Communications",
+      "targetSprint": "Sprint 5 - Digital Services Wave 2",
+      "team": "Dubai Digital Services Team",
       "acceptanceCriteria": [
-        "Capacity panel updates in real time",
-        "Override values are persisted"
+        "Notification templates support Arabic and English variants.",
+        "Delivery failures are queued for retry with backoff policy."
       ]
     },
     {
-      "id": "US-403",
-      "title": "As an engineer, I can see dependency risks before sprint commitment",
-      "description": "Identify sequence blockers and mitigation suggestions.",
-      "businessValue": 8,
+      "id": "US-606",
+      "title": "Bilingual content parity verification",
+      "description": "Automated checks ensure parity between Arabic and English permit instructions and labels.",
+      "type": "Enabler",
       "priority": "Medium",
+      "businessValue": 8,
+      "storyPoints": 3,
+      "effortBand": "Small",
+      "feature": "Content Quality",
+      "epic": "Citizen Communications",
+      "targetSprint": "Sprint 5 - Digital Services Wave 2",
+      "team": "Dubai Digital Services Team",
       "acceptanceCriteria": [
-        "Dependencies are listed",
-        "Threatening dependencies are highlighted"
+        "Mismatch reports are generated during CI validation.",
+        "Critical translation gaps fail the release gate."
       ]
     },
     {
-      "id": "US-404",
-      "title": "As an architect, I can capture technical enablers and constraints",
-      "description": "Generate architecture intent note for sprint stories.",
+      "id": "US-607",
+      "title": "Fraud signal adapter for payment retries",
+      "description": "Integrate fraud scoring service for repeated payment failures before allowing retry attempts.",
+      "type": "Enabler",
+      "priority": "High",
+      "businessValue": 10,
+      "storyPoints": 8,
+      "effortBand": "Medium",
+      "feature": "Fraud Controls",
+      "epic": "Permit Revenue Services",
+      "targetSprint": "Sprint 5 - Digital Services Wave 2",
+      "team": "Abu Dhabi Integration Team",
+      "acceptanceCriteria": [
+        "High-risk retries are automatically blocked.",
+        "Fraud decisions are traceable in operational logs."
+      ]
+    },
+    {
+      "id": "US-608",
+      "title": "Inspector audit trail search enhancements",
+      "description": "Enable filtering and search by permit state transitions for compliance and inspection teams.",
+      "type": "User Story",
+      "priority": "Medium",
+      "businessValue": 9,
+      "storyPoints": 5,
+      "effortBand": "Small",
+      "feature": "Auditability",
+      "epic": "Compliance Assurance",
+      "targetSprint": "Sprint 5 - Digital Services Wave 2",
+      "team": "Dubai Digital Services Team",
+      "acceptanceCriteria": [
+        "Filters support actor, stage, and date range.",
+        "Search results return within 3 seconds for 90th percentile queries."
+      ]
+    },
+    {
+      "id": "US-609",
+      "title": "SLA breach early warning dashboard",
+      "description": "Expose at-risk permit cases based on SLA thresholds for proactive intervention by supervisors.",
+      "type": "User Story",
+      "priority": "High",
+      "businessValue": 10,
+      "storyPoints": 8,
+      "effortBand": "Medium",
+      "feature": "Operational Monitoring",
+      "epic": "Service Reliability",
+      "targetSprint": "Sprint 5 - Digital Services Wave 2",
+      "team": "Dubai Digital Services Team",
+      "acceptanceCriteria": [
+        "Dashboard highlights permits exceeding warning threshold windows.",
+        "Exported alerts include ownership and next action recommendations."
+      ]
+    },
+    {
+      "id": "US-610",
+      "title": "Service outage status banner integration",
+      "description": "Display service outage notifications in permit journeys with real-time status updates from incident tooling.",
+      "type": "User Story",
+      "priority": "Medium",
       "businessValue": 7,
-      "priority": "Medium",
+      "storyPoints": 3,
+      "effortBand": "Small",
+      "feature": "Incident Experience",
+      "epic": "Service Reliability",
+      "targetSprint": "Sprint 5 - Digital Services Wave 2",
+      "team": "Dubai Digital Services Team",
       "acceptanceCriteria": [
-        "Architecture note can be exported"
+        "Banner activation is controlled by incident severity state.",
+        "Banner content is localized and accessibility-compliant."
       ]
     },
     {
-      "id": "US-405",
-      "title": "As governance, I can export sprint risk register",
-      "description": "Provide risk register with mitigation and ownership.",
-      "businessValue": 8,
+      "id": "US-611",
+      "title": "Permit category mapping migration",
+      "description": "Migrate legacy permit category mappings into the normalized taxonomy used by the new workflow.",
+      "type": "Enabler",
       "priority": "High",
+      "businessValue": 11,
+      "storyPoints": 13,
+      "effortBand": "Large",
+      "feature": "Data Migration",
+      "epic": "Legacy Modernization",
+      "targetSprint": "Sprint 5 - Digital Services Wave 2",
+      "team": "Abu Dhabi Integration Team",
       "acceptanceCriteria": [
-        "Risk export works in CSV and JSON"
+        "Migration script reports unknown category exceptions.",
+        "Roll-back scripts are tested in staging before production cutover."
+      ]
+    },
+    {
+      "id": "US-612",
+      "title": "Consent capture and revocation journey",
+      "description": "Implement explicit consent capture for data sharing and self-service revocation in citizen profile settings.",
+      "type": "User Story",
+      "priority": "High",
+      "businessValue": 10,
+      "storyPoints": 5,
+      "effortBand": "Small",
+      "feature": "Privacy and Consent",
+      "epic": "Citizen Trust",
+      "targetSprint": "Sprint 5 - Digital Services Wave 2",
+      "team": "Dubai Digital Services Team",
+      "acceptanceCriteria": [
+        "Consent events are retained with immutable timestamps.",
+        "Revoked consent immediately blocks downstream sharing APIs."
+      ]
+    },
+    {
+      "id": "US-613",
+      "title": "Appointment slot optimization batch",
+      "description": "Optimize appointment slot allocations nightly based on demand patterns and no-show rates.",
+      "type": "Enabler",
+      "priority": "Medium",
+      "businessValue": 8,
+      "storyPoints": 8,
+      "effortBand": "Medium",
+      "feature": "Scheduling",
+      "epic": "Operational Efficiency",
+      "targetSprint": "Sprint 6 - Integration Hardening",
+      "team": "Abu Dhabi Integration Team",
+      "acceptanceCriteria": [
+        "Optimization output includes confidence scores per slot recommendation.",
+        "Operations can manually override generated slot plans."
+      ]
+    },
+    {
+      "id": "US-614",
+      "title": "Identity federation timeout hardening",
+      "description": "Improve resiliency for identity federation timeouts and refresh failures during peak traffic windows.",
+      "type": "Enabler",
+      "priority": "High",
+      "businessValue": 9,
+      "storyPoints": 5,
+      "effortBand": "Small",
+      "feature": "Identity and Access",
+      "epic": "Platform Security",
+      "targetSprint": "Sprint 5 - Digital Services Wave 2",
+      "team": "Abu Dhabi Integration Team",
+      "acceptanceCriteria": [
+        "Timeout retries follow exponential backoff with max cap.",
+        "Authentication errors expose user-safe fallback messaging."
+      ]
+    },
+    {
+      "id": "US-615",
+      "title": "Inspector mobile checklist synchronization",
+      "description": "Synchronize offline inspector checklist updates once network connectivity is restored.",
+      "type": "User Story",
+      "priority": "Medium",
+      "businessValue": 8,
+      "storyPoints": 8,
+      "effortBand": "Medium",
+      "feature": "Field Operations",
+      "epic": "Compliance Assurance",
+      "targetSprint": "Sprint 6 - Integration Hardening",
+      "team": "Dubai Digital Services Team",
+      "acceptanceCriteria": [
+        "Conflict resolution prompts inspectors when stale edits are detected.",
+        "Synchronized updates preserve original capture timestamps."
+      ]
+    },
+    {
+      "id": "US-616",
+      "title": "Corporate delegated access management",
+      "description": "Allow corporate administrators to delegate permit actions to authorized employees with scope controls.",
+      "type": "User Story",
+      "priority": "High",
+      "businessValue": 12,
+      "storyPoints": 13,
+      "effortBand": "Large",
+      "feature": "Access Governance",
+      "epic": "Enterprise Experience",
+      "targetSprint": "Sprint 6 - Integration Hardening",
+      "team": "Dubai Digital Services Team",
+      "acceptanceCriteria": [
+        "Delegation scope supports service, duration, and action-level permissions.",
+        "Revoked delegates lose access within one minute."
+      ]
+    },
+    {
+      "id": "US-617",
+      "title": "Attachment malware scanning pipeline",
+      "description": "Scan uploaded attachments through malware detection before persistence and downstream processing.",
+      "type": "Enabler",
+      "priority": "High",
+      "businessValue": 11,
+      "storyPoints": 8,
+      "effortBand": "Medium",
+      "feature": "Security Controls",
+      "epic": "Platform Security",
+      "targetSprint": "Sprint 5 - Digital Services Wave 2",
+      "team": "Abu Dhabi Integration Team",
+      "acceptanceCriteria": [
+        "Known threat signatures are quarantined automatically.",
+        "False positive overrides require supervisor approval."
+      ]
+    },
+    {
+      "id": "US-618",
+      "title": "Data retention policy executor",
+      "description": "Automate retention and archival jobs according to legal policy windows for permit records.",
+      "type": "Enabler",
+      "priority": "Medium",
+      "businessValue": 8,
+      "storyPoints": 5,
+      "effortBand": "Small",
+      "feature": "Data Governance",
+      "epic": "Compliance Assurance",
+      "targetSprint": "Sprint 6 - Integration Hardening",
+      "team": "Abu Dhabi Integration Team",
+      "acceptanceCriteria": [
+        "Retention jobs generate auditable execution reports.",
+        "Archived records remain discoverable by authorized compliance users."
+      ]
+    },
+    {
+      "id": "US-619",
+      "title": "Program increment objective telemetry",
+      "description": "Capture objective progress metrics aligned to PI commitments for leadership reporting.",
+      "type": "Enabler",
+      "priority": "Medium",
+      "businessValue": 7,
+      "storyPoints": 3,
+      "effortBand": "Small",
+      "feature": "PI Reporting",
+      "epic": "Delivery Governance",
+      "targetSprint": "Sprint 5 - Digital Services Wave 2",
+      "team": "Dubai Digital Services Team",
+      "acceptanceCriteria": [
+        "Objective completion percentages are refreshed hourly.",
+        "Variance indicators highlight red/amber objectives automatically."
+      ]
+    },
+    {
+      "id": "US-620",
+      "title": "Cross-team dependency heatmap export",
+      "description": "Provide exportable heatmap of delivery dependencies to support weekly ART sync reviews.",
+      "type": "User Story",
+      "priority": "Medium",
+      "businessValue": 8,
+      "storyPoints": 5,
+      "effortBand": "Small",
+      "feature": "Dependency Management",
+      "epic": "Delivery Governance",
+      "targetSprint": "Sprint 5 - Digital Services Wave 2",
+      "team": "Dubai Digital Services Team",
+      "acceptanceCriteria": [
+        "Export includes dependency severity and owner team.",
+        "Heatmap view is available in both JSON and CSV outputs."
+      ]
+    },
+    {
+      "id": "US-621",
+      "title": "Public API rate limit policy update",
+      "description": "Introduce adaptive rate-limit policy tiers for public permit APIs to improve service stability.",
+      "type": "Enabler",
+      "priority": "Medium",
+      "businessValue": 7,
+      "storyPoints": 3,
+      "effortBand": "Small",
+      "feature": "API Governance",
+      "epic": "Service Reliability",
+      "targetSprint": "Sprint 6 - Integration Hardening",
+      "team": "Abu Dhabi Integration Team",
+      "acceptanceCriteria": [
+        "Burst traffic is throttled without impacting premium partner channels.",
+        "Rate-limit decisions are logged with policy version metadata."
+      ]
+    },
+    {
+      "id": "US-622",
+      "title": "Dispute evidence package generator",
+      "description": "Compile complete dispute evidence bundles including payment events, audit trail, and policy decisions.",
+      "type": "User Story",
+      "priority": "High",
+      "businessValue": 10,
+      "storyPoints": 8,
+      "effortBand": "Medium",
+      "feature": "Dispute Management",
+      "epic": "Permit Revenue Services",
+      "targetSprint": "Sprint 6 - Integration Hardening",
+      "team": "Dubai Digital Services Team",
+      "acceptanceCriteria": [
+        "Evidence bundle includes immutable event hashes.",
+        "Generated package is downloadable in less than 10 seconds for standard cases."
+      ]
+    },
+    {
+      "id": "US-623",
+      "title": "Release readiness go/no-go checklist automation",
+      "description": "Automate release governance checklist generation using sprint completion signals and risk posture.",
+      "type": "Enabler",
+      "priority": "High",
+      "businessValue": 9,
+      "storyPoints": 5,
+      "effortBand": "Small",
+      "feature": "Release Governance",
+      "epic": "Delivery Governance",
+      "targetSprint": "Sprint 6 - Integration Hardening",
+      "team": "Dubai Digital Services Team",
+      "acceptanceCriteria": [
+        "Checklist reflects open risks, unresolved dependencies, and test coverage.",
+        "Approver comments are persisted for governance traceability."
+      ]
+    },
+    {
+      "id": "US-624",
+      "title": "Accessibility remediation for permit wizard",
+      "description": "Resolve key WCAG issues in the permit wizard journey for keyboard and screen-reader users.",
+      "type": "User Story",
+      "priority": "High",
+      "businessValue": 10,
+      "storyPoints": 8,
+      "effortBand": "Medium",
+      "feature": "Accessibility",
+      "epic": "Citizen Experience",
+      "targetSprint": "Sprint 6 - Integration Hardening",
+      "team": "Dubai Digital Services Team",
+      "acceptanceCriteria": [
+        "Wizard supports full keyboard navigation without focus traps.",
+        "Screen-reader labels and error messaging pass accessibility audits."
       ]
     }
   ]

@@ -1,15 +1,58 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&family=Space+Grotesk:wght@400;600;700&display=swap');
+
 :root {
-  --bg: #f4f6fb;
-  --text: #0f1724;
-  --muted: #64748b;
-  --accent: #3b82f6;
+  --bg: #f3f8ff;
+  --text: #0f2236;
+  --muted: #4f6781;
+  --accent: #1f5fbc;
+  --accent-2: #148fb4;
+  --surface: rgba(255, 255, 255, 0.9);
+  --line: #d3e2f4;
 }
-html,body,#__next { height: 100%; }
-body { margin: 0; font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; background: var(--bg); color: var(--text) }
 
-h1 { font-size: 28px }
+html,
+body,
+#__next {
+  height: 100%;
+}
 
-button { background: var(--accent); color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer }
-button:active { transform: translateY(1px) }
+body {
+  margin: 0;
+  font-family: 'Space Grotesk', 'IBM Plex Sans', 'Segoe UI', sans-serif;
+  background:
+    radial-gradient(circle at 12% 8%, rgba(20, 143, 180, 0.08), transparent 40%),
+    radial-gradient(circle at 88% 10%, rgba(57, 118, 218, 0.08), transparent 44%),
+    var(--bg);
+  color: var(--text);
+}
 
-input[type='range'] { vertical-align: middle }
+a {
+  color: inherit;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  letter-spacing: 0.01em;
+}
+
+button {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #fff;
+  border: 1px solid rgba(18, 60, 103, 0.2);
+  padding: 8px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+input[type='range'] {
+  vertical-align: middle;
+}

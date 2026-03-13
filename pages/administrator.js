@@ -25,7 +25,7 @@ export default function AdministratorPage() {
   const [message, setMessage] = useState('')
 
   const [siteReport, setSiteReport] = useState(null)
-  const [adoProject, setAdoProject] = useState('Dubai')
+  const [adoProject, setAdoProject] = useState('Dubai-Agile')
   const [adoReport, setAdoReport] = useState(null)
 
   const [auditLogs, setAuditLogs] = useState([])
@@ -475,7 +475,7 @@ export default function AdministratorPage() {
             <p>Deletes work items in the selected Azure DevOps project.</p>
             <label>
               ADO Project
-              <input value={adoProject} onChange={(e) => setAdoProject(e.target.value)} placeholder="Dubai" />
+              <input value={adoProject} onChange={(e) => setAdoProject(e.target.value)} placeholder="Dubai-Agile" />
             </label>
             <button type="button" onClick={cleanupAdo} disabled={busy === 'ado'}>
               {busy === 'ado' ? 'Cleaning ADO...' : 'Clean ADO Project Data'}

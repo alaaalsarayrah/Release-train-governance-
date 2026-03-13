@@ -1,6 +1,13 @@
 import { useState } from 'react'
 import Link from 'next/link'
 
+export async function getServerSideProps() {
+  if (process.env.NEXT_PUBLIC_ENABLE_THESIS_DEBUG !== 'true') {
+    return { notFound: true }
+  }
+  return { props: {} }
+}
+
 export default function ThesisDebug() {
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
@@ -16,6 +23,7 @@ export default function ThesisDebug() {
     const file = fileInput.files[0]
     const form = new FormData()
     form.append('file', file)
+    form.append('purpose', 'thesis')
 
     setUploading(true)
     try {
@@ -39,7 +47,7 @@ export default function ThesisDebug() {
       <header className="hero">
         <div>
           <h1>Thesis Upload Debugger</h1>
-          <p>Send raw upload requests and inspect exact HTTP response bodies for troubleshooting.</p>
+          <p>Development troubleshooting utility for raw upload responses.</p>
         </div>
         <div className="heroLinks">
           <Link href="/">Home</Link>
